@@ -1,0 +1,19 @@
+# Include important documentation and configuration files
+include README.md
+include LICENSE
+include pyproject.toml
+include setup.py
+
+# Include any YAML templates or configuration files
+recursive-include . *.yml
+recursive-include . *.yaml
+
+# Exclude unnecessary files
+global-exclude __pycache__/*
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude .git/*
+global-exclude .gitignore
+global-exclude tests/*
+global-exclude test_*
+

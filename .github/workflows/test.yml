@@ -1,0 +1,410 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main ]  # Only run on pushes to main (not feature branches)
+  pull_request:
+    branches: [ main ]  # Run on PRs to main to test the merge result
+  workflow_dispatch:
+    inputs:
+      test_coverage_threshold:
+        description: 'Minimum test coverage percentage'
+        required: false
+        default: '60'
+        type: string
+
+jobs:
+  get-python-versions:
+    name: Get supported Python versions
+    runs-on: ubuntu-latest
+    outputs:
+      python-versions: ${{ steps.get-versions.outputs.python-versions }}
+      latest-python: ${{ steps.get-versions.outputs.latest-python }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Get supported Python versions
+      id: get-versions
+      run: |
+        # Install dependencies for the version script
+        pip install requests packaging
+        
+        # Use our authoritative Python version script
+        echo "🔍 Getting supported Python versions..."
+        OUTPUT=$(python3 scripts/check_python_versions.py --format=ci)
+        
+        # Parse the output
+        VERSIONS_JSON=$(echo "$OUTPUT" | grep "^versions=" | cut -d= -f2-)
+        LATEST=$(echo "$OUTPUT" | grep "^latest=" | cut -d= -f2-)
+        
+        echo "python-versions=$VERSIONS_JSON" >> $GITHUB_OUTPUT
+        echo "latest-python=$LATEST" >> $GITHUB_OUTPUT
+        echo "🐍 Supported Python versions: $VERSIONS_JSON"
+        echo "🎯 Latest Python version: $LATEST"
+
+  test:
+    name: Test on Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    needs: get-python-versions
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJson(needs.get-python-versions.outputs.python-versions) }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[test]"
+        pip install coverage[toml]
+
+    - name: Run basic smoke tests first
+      run: |
+        echo "🚀 Running basic smoke tests..."
+        python tests/test_runner.py --basic
+
+    - name: Run full test suite with coverage
+      run: |
+        echo "🧪 Running full test suite with coverage..."
+        coverage run -m pytest tests/ -v --tb=short
+        coverage report --show-missing
+        coverage xml
+
+    - name: Check test coverage
+      run: |
+        COVERAGE_THRESHOLD=${{ github.event.inputs.test_coverage_threshold || '60' }}
+        echo "📊 Checking test coverage threshold: ${COVERAGE_THRESHOLD}%"
+        coverage report --fail-under=${COVERAGE_THRESHOLD}
+
+    - name: Upload coverage to Codecov
+      if: matrix.python-version == '3.11'
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+    - name: Archive test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.python-version }}
+        path: |
+          coverage.xml
+          htmlcov/
+          .coverage
+
+  test-completeness:
+    name: Verify Test Completeness
+    runs-on: ubuntu-latest
+    needs: [test, get-python-versions]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python (latest supported)
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ needs.get-python-versions.outputs.latest-python }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[test]"
+
+    - name: Check for missing tests
+      run: |
+        echo "🔍 Checking for missing tests..."
+        python .github/scripts/check_test_completeness.py
+
+    - name: Verify all test files are discovered
+      run: |
+        echo "📋 Verifying test discovery..."
+        pytest --collect-only tests/ | grep "test session starts"
+        DISCOVERED_TESTS=$(pytest --collect-only -q tests/ 2>/dev/null | grep -c "::test_" || echo "0")
+        echo "Discovered ${DISCOVERED_TESTS} test functions"
+        
+        if [ "${DISCOVERED_TESTS}" -lt 50 ]; then
+          echo "❌ ERROR: Only ${DISCOVERED_TESTS} tests discovered. Expected at least 50."
+          exit 1
+        fi
+        
+        echo "✅ Test discovery looks good: ${DISCOVERED_TESTS} tests found"
+
+    - name: Check test file naming conventions
+      run: |
+        echo "📝 Checking test file naming conventions..."
+        
+        # Check that all test files follow naming convention
+        INVALID_NAMES=$(find tests/ -name "*.py" -not -name "test_*.py" -not -name "conftest.py" -not -name "__init__.py" -not -name "README.md" | wc -l)
+        
+        if [ "${INVALID_NAMES}" -gt 0 ]; then
+          echo "❌ ERROR: Found test files not following 'test_*.py' convention:"
+          find tests/ -name "*.py" -not -name "test_*.py" -not -name "conftest.py" -not -name "__init__.py"
+          exit 1
+        fi
+        
+        echo "✅ All test files follow naming conventions"
+
+    - name: Verify test categories are complete
+      run: |
+        echo "🏷️  Checking test categories..."
+        
+        REQUIRED_TEST_CATEGORIES=(
+          "test_basic.py"
+          "test_argument_spec.py" 
+          "test_generator_core.py"
+          "test_variable_extraction.py"
+          "test_integration.py"
+          "test_edge_cases.py"
+          "test_type_inference.py"
+        )
+        
+        MISSING_CATEGORIES=()
+        
+        for category in "${REQUIRED_TEST_CATEGORIES[@]}"; do
+          if [ ! -f "tests/${category}" ]; then
+            MISSING_CATEGORIES+=("${category}")
+          fi
+        done
+        
+        if [ ${#MISSING_CATEGORIES[@]} -gt 0 ]; then
+          echo "❌ ERROR: Missing required test categories:"
+          printf '%s\n' "${MISSING_CATEGORIES[@]}"
+          exit 1
+        fi
+        
+        echo "✅ All required test categories present"
+
+  lint-and-format:
+    name: Lint and Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check files using the black formatter
+        uses: rickstaa/action-black@v1
+        id: action_black
+        with:
+          black_args: "."
+      - name: Create Pull Request
+        if: steps.action_black.outputs.is_formatted == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          title: "Format Python code with psf/black push"
+          commit-message: ":art: Format Python code with psf/black"
+          body: |
+            There appear to be some python formatting errors in ${{ github.sha }}. This pull request
+            uses the [psf/black](https://github.com/psf/black) formatter to fix these issues.
+          base: ${{ github.head_ref }} # Creates pull request onto pull request or commit branch
+          # branch: actions/black
+
+  test-installation:
+    name: Test Package Installation
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        install-method: ["pip-editable", "pip-wheel", "direct"]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python (latest supported)
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ needs.get-python-versions.outputs.latest-python }}
+
+    - name: Test installation method - ${{ matrix.install-method }}
+      run: |
+        case "${{ matrix.install-method }}" in
+          "pip-editable")
+            echo "📦 Testing editable installation..."
+            pip install -e .
+            ;;
+          "pip-wheel")
+            echo "📦 Testing wheel installation..."
+            pip install build
+            python -m build
+            pip install dist/*.whl
+            ;;
+          "direct")
+            echo "📦 Testing direct script execution..."
+            pip install PyYAML
+            ;;
+        esac
+
+    - name: Test installed commands
+      run: |
+        if [ "${{ matrix.install-method }}" != "direct" ]; then
+          echo "🧪 Testing installed commands..."
+          
+          # Test that commands are available
+          which ansible-argument-spec-generator
+          which generate-argument-spec
+          
+          # Test help output
+          ansible-argument-spec-generator --help
+          generate-argument-spec --help
+          
+          echo "✅ Command installation successful"
+        else
+          echo "🧪 Testing direct script execution..."
+          python generate_argument_specs.py --help
+          echo "✅ Direct script execution successful"
+        fi
+
+  integration-test:
+    name: Integration Test with Real Collections
+    runs-on: ubuntu-latest
+    needs: [test, get-python-versions]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python (latest supported)
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ needs.get-python-versions.outputs.latest-python }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[test]"
+
+    - name: Create test collection structure
+      run: |
+        echo "🏗️  Creating test collection structure..."
+        mkdir -p test_collection/roles/test_role/{defaults,tasks,meta}
+        
+        # Create galaxy.yml
+        cat > test_collection/galaxy.yml << 'EOF'
+        namespace: test
+        name: integration_collection
+        version: 1.0.0
+        description: Test collection for integration testing
+        authors:
+          - Integration Test <test@example.com>
+        EOF
+        
+        # Create role defaults
+        cat > test_collection/roles/test_role/defaults/main.yml << 'EOF'
+        app_name: test_app
+        app_port: 8080
+        app_enabled: true
+        config_path: /etc/test_app
+        packages:
+          - nginx
+          - postgresql
+        EOF
+        
+        # Create role tasks
+        cat > test_collection/roles/test_role/tasks/main.yml << 'EOF'
+        ---
+        - name: Install packages
+          package:
+            name: "{{ packages }}"
+            state: present
+          when: app_enabled
+        
+        - name: Configure application
+          template:
+            src: config.j2
+            dest: "{{ config_path }}/app.conf"
+          notify: restart app
+        
+        - name: Assert variables
+          assert:
+            that:
+              - app_name is defined
+              - app_port is defined
+        EOF
+        
+        # Create role meta
+        cat > test_collection/roles/test_role/meta/main.yml << 'EOF'
+        galaxy_info:
+          author: Test Author
+          description: Integration test role
+          min_ansible_version: 2.9
+        dependencies: []
+        EOF
+
+    - name: Run generator on test collection
+      run: |
+        echo "🚀 Running generator on test collection..."
+        cd test_collection
+        ansible-argument-spec-generator -v
+        
+        # Verify output was created
+        if [ ! -f "roles/test_role/meta/argument_specs.yml" ]; then
+          echo "❌ ERROR: argument_specs.yml was not created"
+          exit 1
+        fi
+        
+        echo "✅ Integration test successful"
+        
+        # Show generated content
+        echo "📄 Generated argument_specs.yml:"
+        cat roles/test_role/meta/argument_specs.yml
+
+  summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [test, test-completeness, lint-and-format, test-installation, integration-test]
+    if: always()
+
+    steps:
+    - name: Check all jobs status
+      run: |
+        echo "📊 Test Summary:"
+        echo "===================="
+        
+        JOBS_STATUS=()
+        JOBS_STATUS+=("test:${{ needs.test.result }}")
+        JOBS_STATUS+=("test-completeness:${{ needs.test-completeness.result }}")
+        JOBS_STATUS+=("lint-and-format:${{ needs.lint-and-format.result }}")
+        JOBS_STATUS+=("test-installation:${{ needs.test-installation.result }}")
+        JOBS_STATUS+=("integration-test:${{ needs.integration-test.result }}")
+        
+        ALL_PASSED=true
+        
+        for job_status in "${JOBS_STATUS[@]}"; do
+          job_name=${job_status%:*}
+          status=${job_status#*:}
+          
+          if [ "$status" = "success" ]; then
+            echo "✅ $job_name: PASSED"
+          else
+            echo "❌ $job_name: FAILED ($status)"
+            ALL_PASSED=false
+          fi
+        done
+        
+        echo "===================="
+        
+        if [ "$ALL_PASSED" = true ]; then
+          echo "🎉 ALL TESTS PASSED!"
+        else
+          echo "💔 SOME TESTS FAILED"
+          exit 1
+        fi

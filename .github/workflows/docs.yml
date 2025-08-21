@@ -1,0 +1,62 @@
+name: Documentation
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  check-docs:
+    name: Check Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Check README completeness
+        run: |
+          echo "📚 Checking README completeness..."
+          REQUIRED_SECTIONS=("Installation" "Usage" "Examples" "Contributing" "License")
+          MISSING_SECTIONS=()
+          for section in "${REQUIRED_SECTIONS[@]}"; do
+            if ! grep -q "## $section" README.md; then
+              MISSING_SECTIONS+=("$section")
+            fi
+          done
+          if [ ${#MISSING_SECTIONS[@]} -gt 0 ]; then
+            echo "❌ Missing required README sections:"
+            printf '%s\n' "${MISSING_SECTIONS[@]}"
+            exit 1
+          fi
+          echo "✅ All required README sections present"
+
+      - name: Check for broken links
+        run: |
+          echo "🔗 Checking for broken internal links..."
+          FILE_REFS=$(grep -o '\[.*\](\.\/[^)]*\.md)' README.md | sed 's/.*(\.\///' | sed 's/)//' || echo "")
+          if [ -n "$FILE_REFS" ]; then
+            for ref in $FILE_REFS; do
+              if [ ! -f "$ref" ]; then
+                echo "❌ Broken link: $ref"
+                exit 1
+              fi
+            done
+          fi
+          echo "✅ No broken internal links found"
+      
+  spell-check:
+    name: Spell Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Spell check with CSpell
+        uses: streetsidesoftware/cspell-action@v6
+        with:
+          files: "**/*.md"
+          config: .cspell.json

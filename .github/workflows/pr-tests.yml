@@ -1,0 +1,205 @@
+name: PR Test Requirements
+
+on:
+  pull_request:
+    branches: [ main ]  # Removed develop branch, focus on main
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check-new-code-has-tests:
+    name: Check New Code Has Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout PR
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[test]"
+
+    - name: Get changed files
+      id: changed-files
+      run: |
+        # Get list of changed Python files
+        CHANGED_PY_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '\.py$' | grep -v '__pycache__' | grep -v '\.pyc' || echo "")
+        
+        echo "Changed Python files:"
+        echo "$CHANGED_PY_FILES"
+        
+        # Save to output
+        echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+        echo "$CHANGED_PY_FILES" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Check if main module was changed
+      id: check-main-changed
+      run: |
+        CHANGED_FILES="${{ steps.changed-files.outputs.changed_files }}"
+        
+        if echo "$CHANGED_FILES" | grep -q "generate_argument_specs.py"; then
+          echo "main_changed=true" >> $GITHUB_OUTPUT
+          echo "📝 Main module was changed - checking for corresponding test updates"
+        else
+          echo "main_changed=false" >> $GITHUB_OUTPUT
+          echo "ℹ️  Main module unchanged"
+        fi
+
+    - name: Check if tests were updated when main code changed
+      if: steps.check-main-changed.outputs.main_changed == 'true'
+      run: |
+        CHANGED_FILES="${{ steps.changed-files.outputs.changed_files }}"
+        
+        # Check if any test files were also changed
+        if echo "$CHANGED_FILES" | grep -q "tests/"; then
+          echo "✅ Tests were updated along with main code changes"
+        else
+          echo "⚠️  WARNING: Main code was changed but no tests were updated"
+          echo "Consider adding or updating tests for your changes"
+          echo ""
+          echo "Guidelines:"
+          echo "- Add tests for new functions/classes"
+          echo "- Update tests for modified functionality" 
+          echo "- Add edge case tests for bug fixes"
+          echo ""
+          echo "This is a warning, not a failure, but tests are strongly recommended!"
+        fi
+
+    - name: Analyze code complexity of changes
+      run: |
+        CHANGED_FILES="${{ steps.changed-files.outputs.changed_files }}"
+        
+        if [ -n "$CHANGED_FILES" ]; then
+          echo "📊 Analyzing changed code complexity..."
+          
+          for file in $CHANGED_FILES; do
+            if [ -f "$file" ] && [[ "$file" == *.py ]] && [[ "$file" != tests/* ]]; then
+              echo ""
+              echo "📄 Analyzing: $file"
+              
+              # Count lines of code added/modified
+              LINES_ADDED=$(git diff --numstat origin/${{ github.base_ref }}...HEAD "$file" | awk '{print $1}' || echo "0")
+              LINES_REMOVED=$(git diff --numstat origin/${{ github.base_ref }}...HEAD "$file" | awk '{print $2}' || echo "0")
+              
+              echo "   Lines added: $LINES_ADDED"
+              echo "   Lines removed: $LINES_REMOVED"
+              
+              if [ "$LINES_ADDED" -gt 50 ]; then
+                echo "   ⚠️  Significant changes detected (>50 lines added)"
+                echo "   Consider adding comprehensive tests for this change"
+              fi
+              
+              # Check for new class or function definitions
+              NEW_FUNCTIONS=$(git diff origin/${{ github.base_ref }}...HEAD "$file" | grep "^+.*def " | wc -l || echo "0")
+              NEW_CLASSES=$(git diff origin/${{ github.base_ref }}...HEAD "$file" | grep "^+.*class " | wc -l || echo "0")
+              
+              if [ "$NEW_FUNCTIONS" -gt 0 ]; then
+                echo "   🔧 New functions detected: $NEW_FUNCTIONS"
+                echo "   Recommended: Add unit tests for new functions"
+              fi
+              
+              if [ "$NEW_CLASSES" -gt 0 ]; then
+                echo "   📦 New classes detected: $NEW_CLASSES"
+                echo "   Recommended: Add comprehensive tests for new classes"
+              fi
+            fi
+          done
+        else
+          echo "ℹ️  No Python files changed in this PR"
+        fi
+
+    - name: Run tests on changed code
+      run: |
+        echo "🧪 Running full test suite to ensure changes don't break existing functionality..."
+        python tests/test_runner.py
+
+    - name: Check test completeness
+      run: |
+        echo "🔍 Checking overall test completeness..."
+        python .github/scripts/check_test_completeness.py
+
+  test-coverage-check:
+    name: Test Coverage Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[test]"
+        pip install coverage[toml]
+
+    - name: Run tests with coverage
+      run: |
+        echo "🧪 Running tests with coverage (excluding test files)..."
+        coverage run -m pytest tests/ -v
+        coverage report --show-missing
+        coverage xml
+
+    - name: Check coverage threshold
+      run: |
+        # Check if coverage meets minimum threshold
+        COVERAGE_PERCENT=$(coverage report --format=total)
+        echo "Current test coverage: ${COVERAGE_PERCENT}%"
+        
+        MIN_COVERAGE=60
+        
+        if [ "$COVERAGE_PERCENT" -lt "$MIN_COVERAGE" ]; then
+          echo "❌ ERROR: Test coverage ($COVERAGE_PERCENT%) is below minimum threshold ($MIN_COVERAGE%)"
+          echo ""
+          echo "Please add tests to improve coverage. Focus on:"
+          echo "- Untested functions and classes"
+          echo "- Edge cases and error conditions"
+          echo "- New code added in this PR"
+          exit 1
+        else
+          echo "✅ Test coverage ($COVERAGE_PERCENT%) meets minimum threshold ($MIN_COVERAGE%)"
+        fi
+
+    - name: Coverage comment
+      if: github.event_name == 'pull_request'
+      run: |
+        COVERAGE_PERCENT=$(coverage report --format=total)
+        
+        echo "📊 **Test Coverage Report**" > coverage_comment.md
+        echo "" >> coverage_comment.md
+        echo "Current coverage: **${COVERAGE_PERCENT}%**" >> coverage_comment.md
+        echo "" >> coverage_comment.md
+        
+        if [ "$COVERAGE_PERCENT" -ge 90 ]; then
+          echo "🎉 Excellent test coverage!" >> coverage_comment.md
+        elif [ "$COVERAGE_PERCENT" -ge 80 ]; then
+          echo "✅ Good test coverage!" >> coverage_comment.md
+        elif [ "$COVERAGE_PERCENT" -ge 75 ]; then
+          echo "⚠️ Test coverage could be improved" >> coverage_comment.md
+        else
+          echo "❌ Test coverage needs improvement" >> coverage_comment.md
+        fi
+        
+        echo "" >> coverage_comment.md
+        echo "<details>" >> coverage_comment.md
+        echo "<summary>Coverage Details</summary>" >> coverage_comment.md
+        echo "" >> coverage_comment.md
+        echo "\`\`\`" >> coverage_comment.md
+        coverage report >> coverage_comment.md
+        echo "\`\`\`" >> coverage_comment.md
+        echo "</details>" >> coverage_comment.md
+        
+        # Show the comment (in a real setup, this would be posted to the PR)
+        cat coverage_comment.md

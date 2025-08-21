@@ -1,0 +1,96 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ansible-argument-spec-generator"
+version = "1.0.0"
+authors = [
+    {name = "David Danielsson", email = "djdanielsson@users.noreply.github.com"},
+]
+description = "A comprehensive tool to generate argument_specs.yml files for Ansible collections and roles"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.6"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Systems Administration",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+keywords = ["ansible", "automation", "argument-specs", "validation", "documentation", "yaml"]
+dependencies = [
+    "PyYAML>=5.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov>=4.0",
+    "pytest-mock>=3.10",
+    "black>=22.0",
+    "flake8>=5.0",
+    "mypy>=1.0",
+]
+test = [
+    "pytest>=6.0",
+    "pytest-cov>=4.0",
+    "pytest-mock>=3.10",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/djdanielsson/ansible_arg_spec_generator"
+"Bug Reports" = "https://github.com/djdanielsson/ansible_arg_spec_generator/issues"
+"Source" = "https://github.com/djdanielsson/ansible_arg_spec_generator"
+"Documentation" = "https://github.com/djdanielsson/ansible_arg_spec_generator#readme"
+
+[project.scripts]
+ansible-argument-spec-generator = "generate_argument_specs:main"
+generate-argument-spec = "generate_argument_specs:main"
+
+[tool.setuptools]
+py-modules = ["generate_argument_specs"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yml", "*.yaml", "*.md"]
+
+[tool.coverage.run]
+source = ["."]
+omit = [
+    "tests/*",
+    "setup.py",
+    "build/*",
+    "dist/*",
+    "*.egg-info/*",
+    ".venv/*",
+    "venv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+show_missing = true
+skip_covered = false
+
+[tool.coverage.html]
+directory = "htmlcov"
+

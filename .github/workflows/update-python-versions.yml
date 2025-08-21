@@ -1,0 +1,88 @@
+name: Update Python Version Support
+
+on:
+  schedule:
+    # Run monthly on the 1st at 9 AM UTC
+    - cron: '0 9 1 * *'
+  workflow_dispatch:
+    # Allow manual triggering
+
+jobs:
+  check-python-versions:
+    name: Check for New Python Versions
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+        
+    - name: Install dependencies
+      run: |
+        pip install requests
+        
+    - name: Check for new Python versions
+      id: check-versions
+      run: |
+        # Use our unified Python version management script
+        echo "🔍 Checking for Python version updates..."
+        python3 scripts/check_python_versions.py --dry-run > update_preview.txt 2>&1
+        
+        # Check if updates are needed
+        if python3 scripts/check_python_versions.py --check-only | grep -q "New versions that could be added"; then
+          echo "🆕 Updates available - applying them..."
+          python3 scripts/check_python_versions.py
+          
+          # Get the list of new versions for the PR
+          NEW_VERSIONS=$(python3 scripts/check_python_versions.py --check-only | grep "New versions" | cut -d: -f2 | tr -d '[],' | tr ' ' ',')
+          
+          echo "has_updates=true" >> $GITHUB_OUTPUT
+          echo "new_versions=$NEW_VERSIONS" >> $GITHUB_OUTPUT
+        else
+          echo "✅ No updates needed"
+          echo "has_updates=false" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Create Pull Request
+      if: steps.check-versions.outputs.has_updates == 'true'
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "feat: add support for Python ${{ steps.check-versions.outputs.new_versions }}"
+        title: "🐍 Add support for Python ${{ steps.check-versions.outputs.new_versions }}"
+        body: |
+          ## 🐍 New Python Version Support
+          
+          This automated PR adds support for newly released Python versions:
+          
+          **New versions added:** `${{ steps.check-versions.outputs.new_versions }}`
+          
+          ### Changes Made
+          - ✅ Updated `pyproject.toml` classifiers to include new Python versions
+          - 🔄 CI will automatically test against these new versions
+          - 📦 Package will be marked as compatible with new Python releases
+          
+          ### What's Next
+          1. Review the changes to ensure they look correct
+          2. Test that the new Python versions work with the codebase
+          3. Merge when ready
+          
+          ---
+          *This PR was automatically created by the Update Python Versions workflow*
+        branch: update-python-versions
+        delete-branch: true
+        draft: false
+        
+    - name: Comment on outcome
+      run: |
+        if [ "${{ steps.check-versions.outputs.has_updates }}" == "true" ]; then
+          echo "🎉 Created PR for new Python versions: ${{ steps.check-versions.outputs.new_versions }}"
+        else
+          echo "✅ No new Python versions to add - project is up to date!"
+        fi
