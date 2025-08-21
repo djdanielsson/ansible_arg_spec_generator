@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ansible-argument-spec-generator"
-version = "1.0.0"
+version = "1.0.0.post1"
 authors = [
     {name = "David Danielsson", email = "djdanielsson@users.noreply.github.com"},
 ]
