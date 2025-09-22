@@ -24,6 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -52,8 +53,16 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+
+          # Checkout the target branch
+          git checkout ${{ github.event.release.target_commitish }}
+
           git add pyproject.toml __init__.py
-          git commit -m "Update version to ${{ steps.get_version.outputs.version }}" || exit 0
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Update version to ${{ steps.get_version.outputs.version }}"
           git push
 
       - name: Build release distributions
