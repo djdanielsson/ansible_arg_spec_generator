@@ -11,7 +11,7 @@ authors = [
 description = "A comprehensive tool to generate argument_specs.yml files for Ansible collections and roles"
 readme = "README.md"
 license = {file = "LICENSE"}
-requires-python = ">=3.6"
+requires-python = ">=3.8"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
