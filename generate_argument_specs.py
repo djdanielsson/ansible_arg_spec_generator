@@ -197,7 +197,9 @@ class ArgumentSpecsGenerator:
         prefix = f"[{self.current_role}] " if role_prefix and self.current_role else ""
         print(f"{prefix}{message}")
 
-    def _safe_load_yaml_file(self, file_path: Path, description: str = "") -> Optional[Dict[str, Any]]:
+    def _safe_load_yaml_file(
+        self, file_path: Path, description: str = ""
+    ) -> Optional[Dict[str, Any]]:
         """Safely load a YAML file with proper error handling"""
         try:
             with open(file_path, "r", encoding="utf-8") as f:
@@ -850,9 +852,7 @@ class ArgumentSpecsGenerator:
             defaults = self._safe_load_yaml_file(defaults_file)
             if defaults is not None:
                 # Handle case where YAML file contains only comments or is empty
-                analysis["defaults"] = (
-                    defaults if isinstance(defaults, dict) else {}
-                )
+                analysis["defaults"] = defaults if isinstance(defaults, dict) else {}
             else:
                 analysis["defaults"] = {}
 
@@ -862,9 +862,7 @@ class ArgumentSpecsGenerator:
             vars_data = self._safe_load_yaml_file(vars_file)
             if vars_data is not None:
                 # Handle case where YAML file contains only comments or is empty
-                analysis["vars"] = (
-                    vars_data if isinstance(vars_data, dict) else {}
-                )
+                analysis["vars"] = vars_data if isinstance(vars_data, dict) else {}
             else:
                 analysis["vars"] = {}
 
@@ -898,7 +896,9 @@ class ArgumentSpecsGenerator:
                             if descriptions.get("description") or descriptions.get(
                                 "short_description"
                             ):
-                                self.log_verbose(f"Found description from meta/main.yml")
+                                self.log_verbose(
+                                    f"Found description from meta/main.yml"
+                                )
                     else:
                         analysis["authors"] = []
                         analysis["meta_description"] = []
@@ -1823,7 +1823,6 @@ class ArgumentSpecsGenerator:
             allow_unicode=True,
         )
 
-
         # Add document markers
         return f"---\n{yaml_content}...\n"
 
@@ -2589,7 +2588,6 @@ class ArgumentSpecsGenerator:
             allow_unicode=True,
         )
 
-
         # Add YAML document markers and ensure proper formatting
         return f"---\n{yaml_content}...\n"
 
@@ -2663,16 +2661,17 @@ def create_example_config():
     )
 
     # Remove any YAML anchor/reference lines that may have slipped through
-    lines = yaml_content.split('\n')
+    lines = yaml_content.split("\n")
     cleaned_lines = []
     for line in lines:
         # Skip lines that are just YAML anchors (&id001) or references (*id001)
         stripped = line.strip()
-        if not (stripped.startswith('&') and len(stripped.split()) == 1) and \
-           not (stripped.startswith('*') and len(stripped.split()) == 1):
+        if not (stripped.startswith("&") and len(stripped.split()) == 1) and not (
+            stripped.startswith("*") and len(stripped.split()) == 1
+        ):
             cleaned_lines.append(line)
 
-    return '\n'.join(cleaned_lines)
+    return "\n".join(cleaned_lines)
 
 
 def main():
