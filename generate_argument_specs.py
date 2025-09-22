@@ -1814,9 +1814,25 @@ class ArgumentSpecsGenerator:
                 # Disable YAML references/anchors (like *id001) for cleaner output
                 return True
 
+            def generate_anchor(self, node):
+                # Prevent anchor generation entirely
+                return None
+
+            def ignore_aliases(self, data):
+                # Disable YAML references/anchors (like *id001) for cleaner output
+                return True
+
+            def generate_anchor(self, node):
+                # Prevent anchor generation entirely
+                return None
+
+        # Deep copy the specs to avoid any shared object references that could create anchors
+        import copy
+        specs_copy = copy.deepcopy(specs)
+
         # Configure YAML output for better readability
         yaml_content = yaml.dump(
-            specs,
+            specs_copy,
             Dumper=CustomDumper,
             default_flow_style=False,
             sort_keys=False,
@@ -1824,6 +1840,7 @@ class ArgumentSpecsGenerator:
             width=120,  # Prevent overly long lines
             allow_unicode=True,
         )
+
 
         # Add document markers
         return f"---\n{yaml_content}...\n"
@@ -2575,9 +2592,21 @@ class ArgumentSpecsGenerator:
             def increase_indent(self, flow=False, indentless=False):
                 return super().increase_indent(flow, False)
 
+            def ignore_aliases(self, data):
+                # Disable YAML references/anchors (like *id001) for cleaner output
+                return True
+
+            def generate_anchor(self, node):
+                # Prevent anchor generation entirely
+                return None
+
+        # Deep copy the specs to avoid any shared object references that could create anchors
+        import copy
+        specs_copy = copy.deepcopy(specs)
+
         # Configure YAML output for better readability
         yaml_content = yaml.dump(
-            specs,
+            specs_copy,
             Dumper=CustomDumper,
             default_flow_style=False,
             sort_keys=False,
@@ -2585,6 +2614,7 @@ class ArgumentSpecsGenerator:
             width=120,  # Prevent overly long lines
             allow_unicode=True,
         )
+
 
         # Add YAML document markers and ensure proper formatting
         return f"---\n{yaml_content}...\n"
@@ -2654,9 +2684,25 @@ def create_example_config():
         }
     }
 
-    return yaml.dump(
-        example_config, default_flow_style=False, sort_keys=False, indent=2
+    # Deep copy to avoid any shared references
+    import copy
+    config_copy = copy.deepcopy(example_config)
+
+    yaml_content = yaml.dump(
+        config_copy, default_flow_style=False, sort_keys=False, indent=2
     )
+
+    # Remove any YAML anchor/reference lines that may have slipped through
+    lines = yaml_content.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        # Skip lines that are just YAML anchors (&id001) or references (*id001)
+        stripped = line.strip()
+        if not (stripped.startswith('&') and len(stripped.split()) == 1) and \
+           not (stripped.startswith('*') and len(stripped.split()) == 1):
+            cleaned_lines.append(line)
+
+    return '\n'.join(cleaned_lines)
 
 
 def main():
