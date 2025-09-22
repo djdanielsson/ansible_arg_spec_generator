@@ -2,7 +2,6 @@ name: Test Suite
 
 on:
   push:
-    branches: [ main ]  # Only run on pushes to main (not feature branches)
   pull_request:
     branches: [ main ]  # Run on PRs to main to test the merge result
   workflow_dispatch:
@@ -276,12 +275,14 @@ to fix Python code formatting issues detected by Black."
 
       - name: Report formatting status
         run: |
-          if [ "${{ steps.action_black.outputs.is_formatted }}" == "true" ]; then
+          if [ "$IS_FORMATTED" == "true" ]; then
             echo "✅ Formatting issues detected and auto-fix PR created!"
             echo "📝 Check the 'Pull requests' tab for the auto-generated formatting fix."
           else
             echo "✅ All Python code is properly formatted!"
           fi
+        env:
+          IS_FORMATTED: ${{ steps.action_black.outputs.is_formatted }}
 
   test-installation:
     name: Test Package Installation
