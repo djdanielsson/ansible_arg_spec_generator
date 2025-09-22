@@ -2,7 +2,6 @@ name: Test Suite
 
 on:
   push:
-    branches: [ main ]  # Only run on pushes to main (not feature branches)
   pull_request:
     branches: [ main ]  # Run on PRs to main to test the merge result
   workflow_dispatch:

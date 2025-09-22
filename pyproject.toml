@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ansible-argument-spec-generator"
-version = "1.0.0"
+version = "1.0.1"
 authors = [
     {name = "David Danielsson", email = "djdanielsson@users.noreply.github.com"},
 ]
 description = "A comprehensive tool to generate argument_specs.yml files for Ansible collections and roles"
 readme = "README.md"
 license = {file = "LICENSE"}
-requires-python = ">=3.6"
+requires-python = ">=3.8"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",

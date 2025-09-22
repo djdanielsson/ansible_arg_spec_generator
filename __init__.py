@@ -13,7 +13,7 @@ Features:
 - Professional YAML output
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.0.post1"
 __author__ = "David Danielsson"
 __email__ = "djdanielsson@users.noreply.github.com"
 
