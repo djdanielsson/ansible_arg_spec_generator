@@ -265,6 +265,89 @@ ansible-argument-spec-generator --validate-only
 ansible-argument-spec-generator -vvv --role myrole
 ```
 
+## Contributing
+
+We welcome contributions! Here's how you can help improve the Ansible Argument Specs Generator:
+
+### Development Setup
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/djdanielsson/ansible_arg_spec_generator.git
+   cd ansible_arg_spec_generator
+   ```
+
+2. **Set up development environment:**
+   ```bash
+   # Install Python 3.8+
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -e ".[dev]"
+   ```
+
+3. **Run tests:**
+   ```bash
+   # Run all tests
+   pytest
+
+   # Run with coverage
+   pytest --cov=generate_argument_specs --cov-report=html
+
+   # Run specific test categories
+   pytest -k "test_basic"
+   ```
+
+4. **Code formatting:**
+   ```bash
+   # Format code with Black
+   black .
+
+   # Check formatting
+   black --check .
+   ```
+
+### Development Guidelines
+
+- **Code Style:** Follow PEP 8 guidelines
+- **Formatting:** Use Black for consistent formatting
+- **Testing:** Write tests for new features and bug fixes
+- **Documentation:** Update README and docstrings for changes
+- **Commits:** Use clear, descriptive commit messages
+
+### Testing
+
+The project includes comprehensive tests covering:
+- Core functionality
+- Edge cases
+- Integration tests
+- CI/CD workflows
+
+Run the full test suite:
+```bash
+pytest tests/ -v
+```
+
+### Pull Requests
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Make your changes and add tests
+4. Ensure all tests pass: `pytest`
+5. Format code: `black .`
+6. Commit your changes: `git commit -m "Add your feature"`
+7. Push to your fork: `git push origin feature/your-feature`
+8. Create a Pull Request
+
+### Bug Reports and Feature Requests
+
+- **Bug Reports:** Use GitHub Issues with detailed reproduction steps
+- **Feature Requests:** Describe the proposed feature and its use case
+- **Questions:** Check existing issues or create a discussion
+
+### Code of Conduct
+
+This project follows a code of conduct to ensure a welcoming environment for all contributors.
+
 ## License
 
 MIT
