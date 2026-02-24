@@ -292,9 +292,7 @@ def _main_collection_mode(args, generator, quiet):
     if args.role:
         role_path = Path(args.collection_path) / "roles" / args.role
         if not role_path.exists():
-            raise RoleNotFoundError(
-                f"Role '{args.role}' not found in collection"
-            )
+            raise RoleNotFoundError(f"Role '{args.role}' not found in collection")
         generator.process_single_role(str(role_path), args.role)
         generator.processed_roles.append(args.role)
     else:
@@ -321,9 +319,7 @@ def _validate_collection(args, generator, quiet):
                 "argument_specs", {}
             ).items():
                 entry_point = EntryPointSpec(name=entry_name)
-                entry_point.short_description = entry_data.get(
-                    "short_description", ""
-                )
+                entry_point.short_description = entry_data.get("short_description", "")
                 entry_point.description = entry_data.get("description", [])
 
                 for arg_name, arg_data in entry_data.get("options", {}).items():
@@ -341,9 +337,7 @@ def _validate_collection(args, generator, quiet):
                 generator.add_entry_point(entry_point)
 
             if not generator.validate_specs():
-                raise ValidationError(
-                    f"Validation failed for {role_name}"
-                )
+                raise ValidationError(f"Validation failed for {role_name}")
             else:
                 _print_unless_quiet(f"✓ {role_name} specs are valid", quiet)
 
@@ -360,13 +354,9 @@ def _main_single_role_mode(args, generator, quiet):
         with open(output_file, "r") as f:
             existing_specs = yaml.safe_load(f)
 
-        for entry_name, entry_data in existing_specs.get(
-            "argument_specs", {}
-        ).items():
+        for entry_name, entry_data in existing_specs.get("argument_specs", {}).items():
             entry_point = EntryPointSpec(name=entry_name)
-            entry_point.short_description = entry_data.get(
-                "short_description", ""
-            )
+            entry_point.short_description = entry_data.get("short_description", "")
             entry_point.description = entry_data.get("description", [])
 
             for arg_name, arg_data in entry_data.get("options", {}).items():
