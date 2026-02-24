@@ -66,13 +66,18 @@ def check_main_module_coverage() -> bool:
     """Check that the main module has adequate test coverage"""
     print("🔍 Checking main module test coverage...")
 
-    main_file = Path("generate_argument_specs.py")
-    if not main_file.exists():
-        print("❌ ERROR: Main module generate_argument_specs.py not found")
+    main_pkg = Path("generate_argument_specs")
+    if not main_pkg.exists():
+        print("❌ ERROR: Main package generate_argument_specs/ not found")
         return False
 
-    # Extract classes and functions from main module
-    classes, functions = get_classes_and_functions(main_file)
+    # Extract classes and functions from all package modules
+    classes: set = set()
+    functions: set = set()
+    for py_file in main_pkg.glob("*.py"):
+        file_classes, file_functions = get_classes_and_functions(py_file)
+        classes.update(file_classes)
+        functions.update(file_functions)
 
     print(f"📊 Found in main module:")
     print(f"   Classes: {len(classes)} - {', '.join(sorted(classes))}")

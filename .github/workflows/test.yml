@@ -267,9 +267,9 @@ jobs:
           
           echo "✅ Command installation successful"
         else
-          echo "🧪 Testing direct script execution..."
-          python generate_argument_specs.py --help
-          echo "✅ Direct script execution successful"
+          echo "🧪 Testing direct module execution..."
+          python -m generate_argument_specs --help
+          echo "✅ Direct module execution successful"
         fi
 
   integration-test:

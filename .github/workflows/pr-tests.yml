@@ -45,7 +45,7 @@ jobs:
       run: |
         CHANGED_FILES="${{ steps.changed-files.outputs.changed_files }}"
         
-        if echo "$CHANGED_FILES" | grep -q "generate_argument_specs.py"; then
+        if echo "$CHANGED_FILES" | grep -q "generate_argument_specs/"; then
           echo "main_changed=true" >> $GITHUB_OUTPUT
           echo "📝 Main module was changed - checking for corresponding test updates"
         else

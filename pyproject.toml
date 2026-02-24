@@ -58,7 +58,7 @@ ansible-argument-spec-generator = "generate_argument_specs:main"
 generate-argument-spec = "generate_argument_specs:main"
 
 [tool.setuptools]
-py-modules = ["generate_argument_specs"]
+packages = ["generate_argument_specs"]
 
 [tool.setuptools.package-data]
 "*" = ["*.yml", "*.yaml", "*.md"]

@@ -59,7 +59,7 @@ def check_test_status():
                 "python",
                 "-m",
                 "flake8",
-                "generate_argument_specs.py",
+                "generate_argument_specs/",
                 "tests/",
                 "--max-line-length=100",
                 "--ignore=E203,W503",
@@ -177,7 +177,7 @@ def check_quick_status():
     # Check syntax
     print("🔍 Checking syntax...")
     success, output = run_command(
-        ["python", "-m", "py_compile", "generate_argument_specs.py"], "Syntax Check"
+        ["python", "-c", "import generate_argument_specs"], "Import Check"
     )
 
     if success:
