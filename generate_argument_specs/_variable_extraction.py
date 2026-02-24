@@ -155,7 +155,9 @@ class VariableExtractionMixin:
         except yaml.YAMLError:
             self._analyze_content_patterns(content, task_file_path)
         except Exception as e:
-            self.log_debug(f"Could not analyze variable context in {task_file_path}: {e}")
+            self.log_debug(
+                f"Could not analyze variable context in {task_file_path}: {e}"
+            )
 
     def _analyze_task_modules(self, task: dict, task_file_path: Path):
         """Analyze specific Ansible modules and their variable usage"""
@@ -348,9 +350,7 @@ class VariableExtractionMixin:
                         clean_match = match.strip("'\"").strip()
                         if clean_match and not clean_match.startswith("#"):
                             include_file = Path(clean_match).stem
-                            if (
-                                include_file and include_file != task_file_path.stem
-                            ):
+                            if include_file and include_file != task_file_path.stem:
                                 includes.add(include_file)
                                 self.log_trace(
                                     f"Found include via regex: {include_file}"

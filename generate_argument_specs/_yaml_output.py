@@ -52,9 +52,7 @@ class YamlOutputMixin:
         yaml_content = self.generate_yaml()
 
         if self.dry_run:
-            self.log_info(
-                f"Dry run: would write to {output_file}", role_prefix=False
-            )
+            self.log_info(f"Dry run: would write to {output_file}", role_prefix=False)
             return
 
         dir_name = os.path.dirname(output_file)

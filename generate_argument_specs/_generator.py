@@ -1304,12 +1304,8 @@ class ArgumentSpecsGenerator(
 
             entry_point.required_if = entry_config.get("required_if", [])
             entry_point.required_one_of = entry_config.get("required_one_of", [])
-            entry_point.mutually_exclusive = entry_config.get(
-                "mutually_exclusive", []
-            )
-            entry_point.required_together = entry_config.get(
-                "required_together", []
-            )
+            entry_point.mutually_exclusive = entry_config.get("mutually_exclusive", [])
+            entry_point.required_together = entry_config.get("required_together", [])
 
             self.add_entry_point(entry_point)
 
