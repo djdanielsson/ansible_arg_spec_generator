@@ -139,7 +139,9 @@ class TestValidationError:
         role = roles / "bad_role"
         role.mkdir()
         (role / "tasks").mkdir()
-        (role / "tasks" / "main.yml").write_text("---\n- name: t\n  debug:\n    msg: hi\n")
+        (role / "tasks" / "main.yml").write_text(
+            "---\n- name: t\n  debug:\n    msg: hi\n"
+        )
         meta = role / "meta"
         meta.mkdir()
         specs = {

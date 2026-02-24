@@ -14,7 +14,9 @@ from generate_argument_specs import main
 class TestDryRun:
     """Test --dry-run flag."""
 
-    def test_dry_run_collection_does_not_write(self, monkeypatch, sample_collection_structure):
+    def test_dry_run_collection_does_not_write(
+        self, monkeypatch, sample_collection_structure
+    ):
         monkeypatch.chdir(sample_collection_structure)
         with patch("sys.argv", ["prog", "--dry-run"]):
             main()
@@ -23,11 +25,19 @@ class TestDryRun:
             specs = role_dir / "meta" / "argument_specs.yml"
             assert not specs.exists(), f"Dry run should not create {specs}"
 
-    def test_dry_run_single_role_prints_yaml(self, monkeypatch, sample_single_role, capsys):
+    def test_dry_run_single_role_prints_yaml(
+        self, monkeypatch, sample_single_role, capsys
+    ):
         monkeypatch.chdir(sample_single_role)
         with patch(
             "sys.argv",
-            ["prog", "--single-role", "--from-defaults", "defaults/main.yml", "--dry-run"],
+            [
+                "prog",
+                "--single-role",
+                "--from-defaults",
+                "defaults/main.yml",
+                "--dry-run",
+            ],
         ):
             main()
         captured = capsys.readouterr()
@@ -60,14 +70,18 @@ class TestDryRun:
 class TestQuiet:
     """Test --quiet / -q flag."""
 
-    def test_quiet_suppresses_processing_output(self, monkeypatch, sample_collection_structure, capsys):
+    def test_quiet_suppresses_processing_output(
+        self, monkeypatch, sample_collection_structure, capsys
+    ):
         monkeypatch.chdir(sample_collection_structure)
         with patch("sys.argv", ["prog", "--quiet"]):
             main()
         captured = capsys.readouterr()
         assert "Processing role" not in captured.out
 
-    def test_quiet_with_verbose_no_verbose_output(self, monkeypatch, sample_collection_structure, capsys):
+    def test_quiet_with_verbose_no_verbose_output(
+        self, monkeypatch, sample_collection_structure, capsys
+    ):
         monkeypatch.chdir(sample_collection_structure)
         with patch("sys.argv", ["prog", "--quiet"]):
             main()
@@ -78,7 +92,9 @@ class TestQuiet:
 class TestCollectionPathFlag:
     """Test --collection-path flag."""
 
-    def test_collection_path_flag(self, monkeypatch, sample_collection_structure, temp_dir):
+    def test_collection_path_flag(
+        self, monkeypatch, sample_collection_structure, temp_dir
+    ):
         monkeypatch.chdir(temp_dir)
         with patch(
             "sys.argv",
@@ -93,7 +109,9 @@ class TestCollectionPathFlag:
 class TestRoleFlag:
     """Test --role flag to process a single role within a collection."""
 
-    def test_role_flag_processes_single_role(self, monkeypatch, sample_collection_structure, capsys):
+    def test_role_flag_processes_single_role(
+        self, monkeypatch, sample_collection_structure, capsys
+    ):
         monkeypatch.chdir(sample_collection_structure)
         with patch("sys.argv", ["prog", "--role", "webapp"]):
             main()
@@ -152,14 +170,18 @@ class TestFromConfigFlag:
 class TestMutuallyExclusiveArgs:
     """Test mutually exclusive argument combinations."""
 
-    def test_from_defaults_in_collection_mode(self, monkeypatch, sample_collection_structure, capsys):
+    def test_from_defaults_in_collection_mode(
+        self, monkeypatch, sample_collection_structure, capsys
+    ):
         monkeypatch.chdir(sample_collection_structure)
         with patch("sys.argv", ["prog", "--from-defaults", "defaults/main.yml"]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == 2
 
-    def test_from_config_in_collection_mode(self, monkeypatch, sample_collection_structure, capsys):
+    def test_from_config_in_collection_mode(
+        self, monkeypatch, sample_collection_structure, capsys
+    ):
         monkeypatch.chdir(sample_collection_structure)
         with patch("sys.argv", ["prog", "--from-config", "config.yml"]):
             with pytest.raises(SystemExit) as exc_info:

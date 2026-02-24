@@ -86,7 +86,11 @@ class TestAnalyzeTaskFiles:
     def test_no_tasks_dir(self, gen, temp_dir):
         role_dir = temp_dir / "norole"
         role_dir.mkdir()
-        analysis = {"all_task_files": set(), "file_variables": {}, "entry_points": {"main": {}}}
+        analysis = {
+            "all_task_files": set(),
+            "file_variables": {},
+            "entry_points": {"main": {}},
+        }
         gen._analyze_task_files(role_dir, analysis)
         assert analysis["all_task_files"] == set()
 
@@ -100,7 +104,9 @@ class TestAnalyzeTaskFiles:
         analysis = {
             "all_task_files": set(),
             "file_variables": {},
-            "entry_points": {"main": {"variables": {}, "description": "", "short_description": ""}},
+            "entry_points": {
+                "main": {"variables": {}, "description": "", "short_description": ""}
+            },
         }
         gen._analyze_task_files(role_dir, analysis)
         assert "main" in analysis["all_task_files"]
@@ -119,7 +125,9 @@ class TestDetermineEntryPoints:
         helper_file.write_text("---\n- name: h\n  debug:\n    msg: hi\n")
 
         analysis = {
-            "entry_points": {"main": {"variables": {}, "description": "", "short_description": ""}},
+            "entry_points": {
+                "main": {"variables": {}, "description": "", "short_description": ""}
+            },
             "has_entry_points": False,
         }
         gen._determine_entry_points([main_file, helper_file], {"helpers"}, analysis)
@@ -134,7 +142,9 @@ class TestDetermineEntryPoints:
         standalone.write_text("---\n- name: b\n  debug:\n    msg: hi\n")
 
         analysis = {
-            "entry_points": {"main": {"variables": {}, "description": "", "short_description": ""}},
+            "entry_points": {
+                "main": {"variables": {}, "description": "", "short_description": ""}
+            },
             "has_entry_points": False,
         }
         gen._determine_entry_points([main_file, standalone], set(), analysis)
@@ -243,13 +253,19 @@ class TestVariableContextAnalysis:
     """Test variable context analysis methods."""
 
     def test_store_variable_context(self, gen):
-        gen._store_variable_context("my_var", {"context": "test", "module": "copy", "parameter": "src"})
+        gen._store_variable_context(
+            "my_var", {"context": "test", "module": "copy", "parameter": "src"}
+        )
         assert "my_var" in gen.variable_context
         assert "copy_src" in gen.variable_context["my_var"]
 
     def test_store_multiple_contexts(self, gen):
-        gen._store_variable_context("my_var", {"context": "src", "module": "copy", "parameter": "src"})
-        gen._store_variable_context("my_var", {"context": "dest", "module": "file", "parameter": "path"})
+        gen._store_variable_context(
+            "my_var", {"context": "src", "module": "copy", "parameter": "src"}
+        )
+        gen._store_variable_context(
+            "my_var", {"context": "dest", "module": "file", "parameter": "path"}
+        )
         assert len(gen.variable_context["my_var"]) == 2
 
     def test_extract_variables_from_value_string(self, gen):
@@ -289,9 +305,9 @@ class TestVariableContextAnalysis:
         assert len(gen.variable_context) == 0
 
     def test_analyze_variable_usage_context_valid_yaml(self, gen, temp_dir):
-        content = yaml.dump([
-            {"name": "t", "copy": {"src": "{{ my_src }}", "dest": "/tmp/x"}}
-        ])
+        content = yaml.dump(
+            [{"name": "t", "copy": {"src": "{{ my_src }}", "dest": "/tmp/x"}}]
+        )
         gen._analyze_variable_usage_context(content, Path("test.yml"))
         assert "my_src" in gen.variable_context
 

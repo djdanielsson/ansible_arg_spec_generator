@@ -54,7 +54,9 @@ class TestProcessCollection:
         bad = roles / "bad"
         bad.mkdir()
         (bad / "tasks").mkdir()
-        (bad / "tasks" / "main.yml").write_text("---\n- name: t\n  debug:\n    msg: hi\n")
+        (bad / "tasks" / "main.yml").write_text(
+            "---\n- name: t\n  debug:\n    msg: hi\n"
+        )
 
         generator = ArgumentSpecsGenerator(collection_mode=True, verbosity=0)
         generator.process_collection(str(coll))
@@ -126,8 +128,13 @@ class TestLoadExistingSpecs:
         assert existing["main"]["short_description"] == "My custom description"
         assert existing["main"]["description"] == ["Line 1", "Line 2"]
         assert existing["main"]["author"] == ["Me <me@example.com>"]
-        assert existing["main"]["options"]["sample_role_port"]["description"] == "Custom port description"
-        assert existing["main"]["options"]["sample_role_port"]["version_added"] == "0.5.0"
+        assert (
+            existing["main"]["options"]["sample_role_port"]["description"]
+            == "Custom port description"
+        )
+        assert (
+            existing["main"]["options"]["sample_role_port"]["version_added"] == "0.5.0"
+        )
         assert existing["main"]["options"]["sample_role_port"]["_existing"] is True
 
     def test_load_existing_specs_no_file(self, temp_dir):
@@ -189,9 +196,7 @@ class TestValidateSpecs:
         ep = EntryPointSpec(
             name="main",
             short_description="Test",
-            options={
-                "state": ArgumentSpec(name="state", type="str", description="d")
-            },
+            options={"state": ArgumentSpec(name="state", type="str", description="d")},
             required_if=[["state", "present", ["nonexistent_param"]]],
         )
         generator.add_entry_point(ep)
@@ -202,9 +207,7 @@ class TestValidateSpecs:
         ep = EntryPointSpec(
             name="main",
             short_description="Test",
-            options={
-                "real": ArgumentSpec(name="real", type="str", description="d")
-            },
+            options={"real": ArgumentSpec(name="real", type="str", description="d")},
             mutually_exclusive=[["real", "fake"]],
         )
         generator.add_entry_point(ep)
@@ -215,9 +218,7 @@ class TestValidateSpecs:
         ep = EntryPointSpec(
             name="main",
             short_description="Test",
-            options={
-                "opt1": ArgumentSpec(name="opt1", type="str", description="d")
-            },
+            options={"opt1": ArgumentSpec(name="opt1", type="str", description="d")},
             required_one_of=[["opt1", "missing"]],
         )
         generator.add_entry_point(ep)
@@ -228,9 +229,7 @@ class TestValidateSpecs:
         ep = EntryPointSpec(
             name="main",
             short_description="Test",
-            options={
-                "opt1": ArgumentSpec(name="opt1", type="str", description="d")
-            },
+            options={"opt1": ArgumentSpec(name="opt1", type="str", description="d")},
             required_together=[["opt1", "missing"]],
         )
         generator.add_entry_point(ep)
