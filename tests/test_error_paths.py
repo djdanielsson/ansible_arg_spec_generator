@@ -100,7 +100,9 @@ class TestMalformedGalaxyYml:
         role = roles / "myrole"
         role.mkdir()
         (role / "tasks").mkdir()
-        (role / "tasks" / "main.yml").write_text("---\n- name: t\n  debug:\n    msg: hi\n")
+        (role / "tasks" / "main.yml").write_text(
+            "---\n- name: t\n  debug:\n    msg: hi\n"
+        )
         gen = ArgumentSpecsGenerator(verbosity=0)
         gen.process_collection(str(coll))
         assert gen.stats["roles_processed"] >= 1
@@ -115,7 +117,9 @@ class TestUnicodeDecodeErrors:
         (role / "defaults").mkdir()
         (role / "tasks").mkdir()
         (role / "defaults" / "main.yml").write_bytes(b"\x80\x81\x82\xff\xfe\n")
-        (role / "tasks" / "main.yml").write_text("---\n- name: t\n  debug:\n    msg: hi\n")
+        (role / "tasks" / "main.yml").write_text(
+            "---\n- name: t\n  debug:\n    msg: hi\n"
+        )
 
         gen = ArgumentSpecsGenerator()
         analysis = gen.analyze_role_structure(str(role))
@@ -172,7 +176,9 @@ class TestMultipleDefaultsFiles:
 
         tasks = role / "tasks"
         tasks.mkdir()
-        (tasks / "main.yml").write_text("---\n- name: t\n  debug:\n    msg: \"{{ var1 }}\"\n")
+        (tasks / "main.yml").write_text(
+            '---\n- name: t\n  debug:\n    msg: "{{ var1 }}"\n'
+        )
 
         gen = ArgumentSpecsGenerator()
         analysis = gen.analyze_role_structure(str(role))
@@ -218,7 +224,9 @@ class TestVersionDetectionEdgeCases:
         gen = ArgumentSpecsGenerator()
         role = temp_dir / "role"
         role.mkdir()
-        (role / "CHANGELOG.md").write_text("# 3.0.0\n\n- Changes\n\n# 2.0.0\n\n- Older changes\n")
+        (role / "CHANGELOG.md").write_text(
+            "# 3.0.0\n\n- Changes\n\n# 2.0.0\n\n- Older changes\n"
+        )
         info = gen._detect_version_info(role)
         assert info["version"] in ("3.0.0", "1.0.0")
 

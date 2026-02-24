@@ -57,9 +57,7 @@ class TestInferArgumentSpec:
         assert spec.description == "My custom desc"
 
     def test_existing_version_preserved(self, gen):
-        spec = gen._infer_argument_spec(
-            "port", 80, existing_version_added="1.0.0"
-        )
+        spec = gen._infer_argument_spec("port", 80, existing_version_added="1.0.0")
         assert spec.version_added == "1.0.0"
 
     def test_new_variable_gets_version(self, gen):

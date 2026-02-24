@@ -28,7 +28,7 @@ class TestExistingSpecsPreservation:
         }
         (role / "defaults" / "main.yml").write_text(yaml.dump(defaults))
         (role / "tasks" / "main.yml").write_text(
-            "---\n- name: Use vars\n  debug:\n    msg: \"{{ myrole_port }}\"\n"
+            '---\n- name: Use vars\n  debug:\n    msg: "{{ myrole_port }}"\n'
         )
 
         meta = {"galaxy_info": {"author": "Role Author", "description": "Role desc"}}
@@ -120,7 +120,7 @@ class TestExistingSpecsPreservation:
         defaults = {"rt_port": 9090, "rt_name": "roundtrip"}
         (role / "defaults" / "main.yml").write_text(yaml.dump(defaults))
         (role / "tasks" / "main.yml").write_text(
-            "---\n- name: t\n  debug:\n    msg: \"{{ rt_port }}\"\n"
+            '---\n- name: t\n  debug:\n    msg: "{{ rt_port }}"\n'
         )
         meta = {"galaxy_info": {"author": "RT Author"}}
         (role / "meta" / "main.yml").write_text(yaml.dump(meta))
