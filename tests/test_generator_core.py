@@ -8,7 +8,15 @@ import yaml
 from pathlib import Path
 from unittest.mock import patch, mock_open, MagicMock
 
-from generate_argument_specs import ArgumentSpecsGenerator, ArgumentSpec, EntryPointSpec
+from generate_argument_specs import (
+    ArgumentSpecsGenerator,
+    ArgumentSpec,
+    EntryPointSpec,
+    GeneratorError,
+    CollectionNotFoundError,
+    ConfigError,
+    ValidationError,
+)
 
 
 class TestArgumentSpecsGeneratorInit:
@@ -256,15 +264,12 @@ class TestArgumentSpecsGeneratorYAMLGeneration:
     """Test YAML generation functionality"""
 
     def test_generate_yaml_empty(self):
-        """Test YAML generation with no entry points raises error"""
+        """Test YAML generation with no entry points returns empty specs"""
         generator = ArgumentSpecsGenerator()
 
-        # Should raise ValueError when no entry points defined
-        try:
-            generator.generate_yaml()
-            assert False, "Expected ValueError for empty generator"
-        except ValueError as e:
-            assert "No entry points defined" in str(e)
+        yaml_content = generator.generate_yaml()
+        assert "argument_specs: {}" in yaml_content
+        assert yaml_content.startswith("---")
 
     def test_generate_yaml_with_entry_points(self):
         """Test YAML generation with entry points"""
