@@ -44,10 +44,11 @@ jobs:
           sed -i 's/^version = ".*"/version = "${{ steps.get_version.outputs.version }}"/' pyproject.toml
           echo "Updated pyproject.toml version to ${{ steps.get_version.outputs.version }}"
 
-      - name: Update version in __init__.py
+      - name: Update version in package __init__.py and _cli.py
         run: |
-          sed -i 's/^__version__ = ".*"/__version__ = "${{ steps.get_version.outputs.version }}"/' __init__.py
-          echo "Updated __init__.py version to ${{ steps.get_version.outputs.version }}"
+          sed -i 's/^    __version__ = ".*"/    __version__ = "${{ steps.get_version.outputs.version }}"/' generate_argument_specs/__init__.py
+          sed -i 's/^    __version__ = ".*"/    __version__ = "${{ steps.get_version.outputs.version }}"/' generate_argument_specs/_cli.py
+          echo "Updated package version fallbacks to ${{ steps.get_version.outputs.version }}"
 
       - name: Commit version updates
         run: |
@@ -57,7 +58,7 @@ jobs:
           # Checkout the target branch
           git checkout ${{ github.event.release.target_commitish }}
 
-          git add pyproject.toml __init__.py
+          git add pyproject.toml generate_argument_specs/__init__.py generate_argument_specs/_cli.py
           if git diff --staged --quiet; then
             echo "No changes to commit"
             exit 0
