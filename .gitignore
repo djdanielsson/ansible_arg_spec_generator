@@ -84,4 +84,10 @@ htmlcov/
 .mypy_cache/
 
 # Development artifacts
-*.orig
+*.orig.env
+.env.*
+*.pem
+*.key
+credentials.json
+.env.local
+.env.production
