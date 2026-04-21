@@ -202,7 +202,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Check files using the black formatter
-        uses: rickstaa/action-black@944ff59fef4e8a782ab66755472f6f111e6fcb41 # v1
+        uses: rickstaa/action-black@d86849e16a3c498947d70be55198feb86d5d4f53 # v1
         id: action_black
         with:
           black_args: "."
