@@ -7,22 +7,77 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  checks: read
 
 jobs:
   dependabot:
-    name: Approve and auto-merge Dependabot PRs
+    name: Dependabot auto-merge
     runs-on: ubuntu-latest
     if: github.event.pull_request.user.login == 'dependabot[bot]'
 
     steps:
-      - name: Approve Dependabot PR
-        run: gh pr review --approve "$PR_URL"
+      - name: Wait for all CI checks to pass
+        run: |
+          pr="${{ github.event.pull_request.number }}"
+          repo="${{ github.repository }}"
+
+          # Let other workflows register their checks first
+          sleep 15
+
+          for attempt in $(seq 1 90); do
+            checks="$(gh pr checks "$pr" --repo "$repo" --json name,state,workflow \
+              --jq '[.[] | select(
+                ((.workflow // "") | test("dependabot-auto-merge"; "i") | not) and
+                ((.name // "") | test("^Dependabot auto-merge$") | not)
+              )]')"
+
+            count="$(echo "$checks" | jq 'length')"
+            if [ "$count" -eq 0 ]; then
+              if [ "$attempt" -lt 12 ]; then
+                echo "No CI checks registered yet, waiting..."
+                sleep 10
+                continue
+              fi
+              echo "No other CI checks found; proceeding"
+              break
+            fi
+
+            failed="$(echo "$checks" | jq '[.[] | select(.state == "FAILURE" or .state == "ERROR" or .state == "CANCELLED")] | length')"
+            pending="$(echo "$checks" | jq '[.[] | select(.state == "PENDING" or .state == "IN_PROGRESS" or .state == "QUEUED" or .state == "WAITING")] | length')"
+
+            if [ "$failed" -gt 0 ]; then
+              echo "CI checks failed:"
+              echo "$checks" | jq -r '.[] | select(.state == "FAILURE" or .state == "ERROR" or .state == "CANCELLED") | "- \(.name): \(.state)"'
+              exit 1
+            fi
+
+            if [ "$pending" -eq 0 ]; then
+              echo "All CI checks passed:"
+              echo "$checks" | jq -r '.[] | "- \(.name): \(.state)"'
+              break
+            fi
+
+            echo "Waiting for $pending check(s)..."
+            sleep 30
+          done
+
+          if [ "$attempt" -eq 90 ]; then
+            echo "Timed out waiting for CI checks"
+            exit 1
+          fi
         env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Enable auto-merge when checks pass
-        run: gh pr merge --auto --rebase "$PR_URL"
+      - name: Approve Dependabot PR
+        run: gh pr review --approve "${{ github.event.pull_request.number }}"
         env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge PR and delete branch
+        run: |
+          gh pr merge "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --rebase \
+            --delete-branch
+        env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
