@@ -25,11 +25,10 @@ jobs:
           sleep 15
 
           for attempt in $(seq 1 90); do
-            checks="$(gh pr checks "$pr" --repo "$repo" --json name,state,workflow \
-              --jq '[.[] | select(
-                ((.workflow // "") | test("dependabot-auto-merge"; "i") | not) and
-                ((.name // "") | test("^Dependabot auto-merge$") | not)
-              )]')"
+            # Only request name/state — the workflow field needs actions:read and
+            # fails with GITHUB_TOKEN ("Resource not accessible by integration").
+            checks="$(gh pr checks "$pr" --repo "$repo" --json name,state \
+              --jq '[.[] | select(.name != "Dependabot auto-merge")]')"
 
             count="$(echo "$checks" | jq 'length')"
             if [ "$count" -eq 0 ]; then
