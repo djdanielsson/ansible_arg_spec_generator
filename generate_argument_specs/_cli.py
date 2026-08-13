@@ -196,6 +196,18 @@ Examples:
     )
 
     parser.add_argument(
+        "--include-vars",
+        action="store_true",
+        help="Include variables from vars/ as argument options (off by default)",
+    )
+
+    parser.add_argument(
+        "--no-backup",
+        action="store_true",
+        help="Do not create a backup before overwriting existing argument_specs.yml",
+    )
+
+    parser.add_argument(
         "-q",
         "--quiet",
         action="store_true",
@@ -209,7 +221,7 @@ Examples:
         default=0,
         help="""Increase verbosity levels:
   (none): Only show final summary
-  -v: Show basic processing info for each role  
+  -v: Show basic processing info for each role
   -vv: Show detailed processing information
   -vvv: Show full trace and debug information""",
     )
@@ -227,10 +239,21 @@ Examples:
         args.verbose = -1
 
     if args.create_example_config:
+        example_path = Path("example_config.yml")
+        if example_path.exists():
+            if quiet:
+                sys.stderr.write(
+                    f"Error: {example_path} already exists (refusing overwrite in quiet mode)\n"
+                )
+                sys.exit(1)
+            answer = input(f"{example_path} already exists. Overwrite? [y/N]: ").strip()
+            if not answer.lower().startswith("y"):
+                _print_unless_quiet("Aborted.", quiet)
+                return
         example_content = create_example_config()
-        with open("example_config.yml", "w") as f:
+        with open(example_path, "w", encoding="utf-8") as f:
             f.write(example_content)
-        _print_unless_quiet("Example configuration saved to: example_config.yml", quiet)
+        _print_unless_quiet(f"Example configuration saved to: {example_path}", quiet)
         return
 
     collection_mode = not args.single_role
@@ -250,6 +273,8 @@ Examples:
         collection_mode=collection_mode,
         verbosity=args.verbose,
         dry_run=args.dry_run,
+        include_vars=args.include_vars,
+        backup=not args.no_backup,
     )
 
     try:

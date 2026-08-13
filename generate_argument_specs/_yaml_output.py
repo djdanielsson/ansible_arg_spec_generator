@@ -2,7 +2,8 @@
 Mixin class for YAML generation and file output.
 """
 
-import os
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -47,6 +48,18 @@ class YamlOutputMixin:
 
         return f"---\n{yaml_content}...\n"
 
+    def _backup_file_if_needed(self, output_file: Path) -> None:
+        """Create a timestamped backup of an existing file when backup is enabled."""
+        if not getattr(self, "backup", True):
+            return
+        if not output_file.exists():
+            return
+
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        backup_path = output_file.with_name(f"{output_file.name}.{stamp}.bak")
+        shutil.copy2(output_file, backup_path)
+        self.log_verbose(f"Backed up existing file to: {backup_path}")
+
     def save_to_file(self, output_file: str):
         """Save the generated specs to a file"""
         yaml_content = self.generate_yaml()
@@ -55,11 +68,13 @@ class YamlOutputMixin:
             self.log_info(f"Dry run: would write to {output_file}", role_prefix=False)
             return
 
-        dir_name = os.path.dirname(output_file)
-        if dir_name:
-            os.makedirs(dir_name, exist_ok=True)
+        path = Path(output_file)
+        if path.parent and str(path.parent) not in ("", "."):
+            path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(output_file, "w") as f:
+        self._backup_file_if_needed(path)
+
+        with open(path, "w", encoding="utf-8") as f:
             f.write(yaml_content)
 
         self.log_info(f"Argument specs saved to: {output_file}", role_prefix=False)
@@ -82,8 +97,9 @@ class YamlOutputMixin:
 
         try:
             output_file.parent.mkdir(parents=True, exist_ok=True)
+            self._backup_file_if_needed(output_file)
 
-            with open(output_file, "w") as f:
+            with open(output_file, "w", encoding="utf-8") as f:
                 f.write(yaml_content)
 
             self.log_verbose(f"Saved argument specs to: {output_file}")

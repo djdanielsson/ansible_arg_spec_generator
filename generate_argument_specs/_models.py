@@ -33,6 +33,7 @@ class ArgumentSpec:
     elements: Optional[str] = None
     options: Optional[Dict[str, Any]] = None
     version_added: Optional[str] = None
+    no_log: Optional[bool] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format for YAML output"""
@@ -61,7 +62,29 @@ class ArgumentSpec:
         if self.version_added:
             result["version_added"] = self.version_added
 
+        if self.no_log:
+            result["no_log"] = True
+
         return result
+
+    @classmethod
+    def from_existing_dict(cls, name: str, data: Dict[str, Any]) -> "ArgumentSpec":
+        """Build an ArgumentSpec from a previously written option dict."""
+        if not isinstance(data, dict):
+            return cls(name=name, description=str(data) if data else None)
+
+        return cls(
+            name=name,
+            type=data.get("type", "str"),
+            required=bool(data.get("required", False)),
+            default=data.get("default"),
+            choices=data.get("choices"),
+            description=data.get("description"),
+            elements=data.get("elements"),
+            options=data.get("options"),
+            version_added=data.get("version_added"),
+            no_log=data.get("no_log"),
+        )
 
 
 @dataclass

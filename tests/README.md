@@ -10,9 +10,14 @@ This directory contains comprehensive tests for the ansible-argument-spec-genera
 - **`test_argument_spec.py`** - Tests for ArgumentSpec and EntryPointSpec classes
 - **`test_generator_core.py`** - Tests for ArgumentSpecsGenerator core functionality
 - **`test_variable_extraction.py`** - Tests for variable extraction and file parsing
+- **`test_extraction_adversarial.py`** - Messy tasks, includes, circular includes, nested templates
 - **`test_integration.py`** - Integration tests for complete workflows
 - **`test_edge_cases.py`** - Edge cases and error handling tests
-- **`test_type_inference.py`** - Tests for type inference and smart descriptions
+- **`test_type_inference.py`** / **`test_type_inference_direct.py`** - Type inference and descriptions
+- **`test_interactive.py`** - Interactive mode with mocked stdin
+- **`test_golden_and_contract.py`** - Realistic role golden checks and argument_specs contract
+- **`test_review_fixes.py`** - no_log, backups, include-vars, validation, preservation
+- **`test_cli_flags.py`** / **`test_core_methods.py`** / **`test_error_paths.py`** - CLI and error paths
 
 ### Support Files
 
@@ -80,7 +85,7 @@ python tests/test_runner.py --basic
 #### Unit Tests
 Detailed testing of individual components:
 - **ArgumentSpec/EntryPointSpec** (`test_argument_spec.py`)
-- **Generator core methods** (`test_generator_core.py`)  
+- **Generator core methods** (`test_generator_core.py`)
 - **Variable extraction** (`test_variable_extraction.py`)
 - **Type inference** (`test_type_inference.py`)
 
@@ -195,9 +200,9 @@ def test_handles_invalid_yaml(temp_dir):
     invalid_file = temp_dir / "invalid.yml"
     with open(invalid_file, "w") as f:
         f.write("invalid: yaml: content")
-    
+
     generator = ArgumentSpecsGenerator()
-    
+
     # Should not crash
     result = generator.extract_variables_from_task_file(invalid_file)
     assert isinstance(result, set)  # Should return empty set
@@ -210,13 +215,13 @@ def test_yaml_output_format(generator):
     # Set up generator with data
     entry_point = EntryPointSpec(name="test")
     generator.add_entry_point(entry_point)
-    
+
     # Generate and verify
     yaml_content = generator.generate_yaml()
-    
+
     assert yaml_content.startswith("---")
     assert yaml_content.endswith("...\n")
-    
+
     # Parse to verify structure
     import yaml
     parsed = yaml.safe_load(yaml_content)
@@ -239,9 +244,9 @@ pytest tests/test_basic.py::test_package_import -v -s
 def test_with_debug_output(capsys):
     """Test with debug output"""
     generator = ArgumentSpecsGenerator(verbosity=3)  # Max verbosity
-    
+
     generator.log_debug("Debug message")
-    
+
     captured = capsys.readouterr()
     assert "Debug message" in captured.out
 ```
@@ -251,11 +256,11 @@ def test_with_debug_output(capsys):
 def test_inspect_fixture(sample_collection_structure):
     """Inspect what the fixture creates"""
     print(f"Collection path: {sample_collection_structure}")
-    
+
     roles_dir = sample_collection_structure / "roles"
     for role_dir in roles_dir.iterdir():
         print(f"Role: {role_dir.name}")
-        
+
         defaults_file = role_dir / "defaults" / "main.yml"
         if defaults_file.exists():
             with open(defaults_file) as f:
@@ -271,11 +276,11 @@ The test suite is designed to work in CI/CD environments:
 - name: Install dependencies
   run: |
     pip install -e ".[test]"
-    
+
 - name: Run tests
   run: |
     pytest tests/ --cov=generate_argument_specs --cov-report=xml
-    
+
 - name: Upload coverage
   uses: codecov/codecov-action@v3
 ```

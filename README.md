@@ -11,13 +11,15 @@ A Python tool that automatically generates `argument_specs.yml` files for Ansibl
 
 - **Collection-Wide Processing**: Process all roles in a collection automatically
 - **Single Role Mode**: Generate specs for individual roles with interactive or automated modes
-- **Intelligent Type Inference**: Automatically detects variable types based on naming patterns and usage
-- **Variable Discovery**: Extracts variables from tasks, defaults, vars, and conditional statements
-- **Smart Filtering**: Excludes registered variables, private variables, and Ansible built-ins
+- **Intelligent Type Inference**: Detects types from default values (and path-like names/values)
+- **Variable Discovery**: Extracts variables from `defaults/*.yml`, tasks, and templates (`vars/` via `--include-vars`)
+- **Secret Handling**: Sets `no_log: true` for password/token/secret-like names
+- **Smart Filtering**: Excludes registered variables, private (`_`-prefixed) variables, and Ansible built-ins
 - **Multiple Entry Points**: Supports roles with multiple task entry points
-- **Version Tracking**: Automatically adds `version_added` fields for new variables
-- **Clean Output**: Generates well-formatted YAML with alphabetical sorting
-- **Validation**: Built-in validation of generated specs
+- **Spec Preservation**: Keeps curated types, choices, conditionals, and `no_log` on regenerate
+- **Safe Writes**: Timestamped `.bak` backups before overwrite (disable with `--no-backup`)
+- **Version Tracking**: Automatically adds `version_added` for newly discovered variables
+- **Validation**: Checks types, required/default conflicts, choices, elements, and conditionals
 
 ## Installation
 
@@ -44,7 +46,7 @@ After installation, you have access to these commands:
 # Process all roles in current collection
 ansible-argument-spec-generator
 
-# Process a single role interactively  
+# Process a single role interactively
 ansible-argument-spec-generator --single-role
 
 # Get help
@@ -89,7 +91,7 @@ ansible-argument-spec-generator --single-role --from-config config.yml
 ### Verbosity Control
 
 ```bash
-# Silent (default) - summary only
+# Default - final summary only
 ansible-argument-spec-generator
 
 # Basic info
@@ -100,6 +102,9 @@ ansible-argument-spec-generator -vv
 
 # Full debug output
 ansible-argument-spec-generator -vvv
+
+# Suppress all output (including summaries)
+ansible-argument-spec-generator --quiet
 ```
 
 ## Command Line Options
@@ -114,17 +119,23 @@ ansible-argument-spec-generator -vvv
 | `--from-config FILE` | Generate from configuration file |
 | `--output FILE` | Output file path (default: meta/argument_specs.yml) |
 | `--validate-only` | Validate existing specs without generating |
+| `--include-vars` | Include variables from `vars/` as options (off by default) |
+| `--no-backup` | Skip timestamped `.bak` backup before overwrite |
+| `--dry-run` | Preview output without writing files |
+| `-q, --quiet` | Suppress all output including summaries |
 | `-v, -vv, -vvv` | Verbosity levels (basic, detailed, debug) |
 
 ## How It Works
 
 The tool analyzes your Ansible roles to automatically generate argument specifications:
 
-1. **Discovers Variables**: Extracts variables from `defaults/main.yml`, `vars/main.yml`, and task files
+1. **Discovers Variables**: Extracts variables from `defaults/*.yml`, task files, and templates (`vars/` only with `--include-vars`)
 2. **Infers Types**: Automatically detects variable types based on naming patterns and default values
-3. **Detects Entry Points**: Identifies multiple task entry points (main.yml, install.yml, etc.)
-4. **Filters Variables**: Excludes registered variables, private variables, and Ansible built-ins
-5. **Generates Specs**: Creates clean, well-formatted `argument_specs.yml` files
+3. **Marks Secrets**: Sets `no_log: true` for password/token/secret-like variable names
+4. **Detects Entry Points**: Identifies multiple task entry points (main.yml, install.yml, etc.)
+5. **Filters Variables**: Excludes registered variables, private variables, and Ansible built-ins
+6. **Preserves Curated Specs**: Keeps existing types, choices, conditionals, and `no_log` on regenerate
+7. **Generates Specs**: Creates clean `argument_specs.yml` files (with timestamped backups by default)
 
 ## Configuration File Format
 
@@ -139,18 +150,18 @@ entry_points:
         type: str
         required: true
         description: "Name of the application"
-      
+
       state:
         type: str
         default: "present"
         choices: ["present", "absent", "started", "stopped"]
         description: "Desired state"
-      
+
       app_port:
         type: int
         default: 8080
         description: "Port number"
-    
+
     required_if:
       - ["state", "present", ["app_name"]]
 ```
@@ -165,16 +176,17 @@ argument_specs:
   main:
     short_description: "Auto-generated specs for webapp role"
     options:
-      app_name:
-        description: "Application name"
-        type: str
-        default: myapp
-      
       app_enabled:
         description: "Enable application"
         type: bool
         default: true
-      
+
+      app_password:
+        description: "Password for authentication"
+        type: str
+        default: changeme
+        no_log: true
+
       config_path:
         description: "Configuration file path"
         type: path
@@ -187,23 +199,28 @@ argument_specs:
 
 The tool automatically extracts variables from multiple sources:
 
-- **Defaults and Vars**: `defaults/main.yml` and `vars/main.yml`
-- **Task Files**: Variables used in Jinja2 templates, conditionals, and loops
-- **Multiple Entry Points**: Supports roles with `main.yml`, `install.yml`, `configure.yml`, etc.
+- **Defaults**: all `defaults/*.yml` / `defaults/*.yaml` (merged; `main.yml` first)
+- **Vars** (optional): all `vars/*.yml` when `--include-vars` is set
+- **Task Files**: Jinja2 usages, conditionals, loops, asserts, environment, tags
+- **Templates**: Jinja2 variables under `templates/`
+- **Multiple Entry Points**: standalone task files not included by others (plus `main`)
+
+Vars values may still be used for **type inference** when a variable appears in tasks/templates, even if `--include-vars` is off.
 
 ### Smart Type Inference
 
-Variables are automatically typed based on naming patterns:
-- `*_path`, `*_dir`, `*_file` → `type: path`
-- `*_enabled`, `*_debug`, `force_*` → `type: bool`
-- `*_port`, `*_timeout` → `type: int`
+Types come primarily from default values:
+- Python `bool` / `int` / `float` / `list` / `dict` → matching Ansible types
+- Path-like names (`*_path`, `*_dir`, …) with path-like values → `type: path`
+- List element types are inferred from list contents (`bool` checked before `int`)
+- Secret-like names (`password`, `token`, `secret`, …) → `no_log: true`
 
 ### Variable Filtering
 
 Automatically excludes:
-- Private variables (starting with `__`)
-- Registered variables from tasks
-- Ansible built-ins (`ansible_facts`, `inventory_hostname`, etc.)
+- Private variables (names starting with `_`)
+- Registered variables and `set_fact` names from tasks
+- Ansible built-ins (`ansible_*`, and exact names like `item`, `loop`, `hostvars`, `inventory_hostname`, …)
 
 ## Validation
 
@@ -233,6 +250,12 @@ ansible-argument-spec-generator
 
 # Process single role in collection
 ansible-argument-spec-generator --role webapp
+
+# Include vars/ as options and skip backups
+ansible-argument-spec-generator --include-vars --no-backup
+
+# Preview without writing files
+ansible-argument-spec-generator --dry-run
 
 # Interactive single role mode
 ansible-argument-spec-generator --single-role

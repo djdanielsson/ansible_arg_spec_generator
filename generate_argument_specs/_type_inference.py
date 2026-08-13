@@ -4,11 +4,17 @@ Mixin class for type inference and smart description generation.
 
 from typing import Any
 
+from ._constants import _SECRET_NAME_MARKERS
 from ._models import ArgumentSpec
 
 
 class TypeInferenceMixin:
     """Methods for inferring argument types and generating descriptions."""
+
+    def _should_no_log(self, name: str) -> bool:
+        """Return True when a variable name suggests a secret value."""
+        name_lower = (name or "").lower()
+        return any(marker in name_lower for marker in _SECRET_NAME_MARKERS)
 
     def _infer_argument_spec(
         self,
@@ -18,8 +24,10 @@ class TypeInferenceMixin:
         existing_version_added: str = None,
         is_existing: bool = False,
         current_version: str = "1.0.0",
+        existing_opt: dict = None,
     ) -> ArgumentSpec:
-        """Infer argument specification from a default value, preserving existing description and version info"""
+        """Infer argument specification from a default value, preserving existing fields."""
+        existing_opt = existing_opt or {}
         elements = None
         choices = None
 
@@ -39,8 +47,19 @@ class TypeInferenceMixin:
         else:
             arg_type = "str"
 
+        # Prefer curated fields from an existing argument_specs.yml
+        if existing_opt.get("type"):
+            arg_type = existing_opt["type"]
+        if "elements" in existing_opt and existing_opt["elements"] is not None:
+            elements = existing_opt["elements"]
+        if "choices" in existing_opt and existing_opt["choices"] is not None:
+            choices = existing_opt["choices"]
+
         if existing_description:
             description = existing_description
+            self.log_trace(f"Using existing description for {name}")
+        elif existing_opt.get("description"):
+            description = existing_opt["description"]
             self.log_trace(f"Using existing description for {name}")
         else:
             description = self._generate_smart_description(name, value, arg_type)
@@ -49,7 +68,10 @@ class TypeInferenceMixin:
         if existing_version_added:
             version_added = existing_version_added
             self.log_trace(f"Using existing version_added for {name}: {version_added}")
-        elif is_existing:
+        elif existing_opt.get("version_added"):
+            version_added = existing_opt["version_added"]
+            self.log_trace(f"Using existing version_added for {name}: {version_added}")
+        elif is_existing or existing_opt.get("_existing"):
             self.log_trace(
                 f"Variable {name} existed in argument specs - not adding version_added"
             )
@@ -59,14 +81,31 @@ class TypeInferenceMixin:
                 f"Adding version_added for new variable {name}: {version_added}"
             )
 
+        required = existing_opt.get("required")
+        if required is None:
+            required = False
+
+        default = value if value is not None else existing_opt.get("default")
+        if "default" in existing_opt and existing_opt.get("_prefer_existing_default"):
+            default = existing_opt["default"]
+
+        no_log = existing_opt.get("no_log")
+        if no_log is None:
+            no_log = True if self._should_no_log(name) else None
+
+        options = existing_opt.get("options")
+
         return ArgumentSpec(
             name=name,
             type=arg_type,
-            default=value,
+            required=bool(required),
+            default=default,
             description=description,
             elements=elements,
             choices=choices,
             version_added=version_added,
+            no_log=no_log,
+            options=options,
         )
 
     def _infer_list_element_type(self, value: list) -> str:
@@ -76,12 +115,13 @@ class TypeInferenceMixin:
 
         type_counts = {}
         for elem in value:
-            if isinstance(elem, dict):
+            # bool must be checked before int (bool is a subclass of int)
+            if isinstance(elem, bool):
+                elem_type = "bool"
+            elif isinstance(elem, dict):
                 elem_type = "dict"
             elif isinstance(elem, int):
                 elem_type = "int"
-            elif isinstance(elem, bool):
-                elem_type = "bool"
             elif isinstance(elem, float):
                 elem_type = "float"
             else:

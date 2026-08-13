@@ -24,21 +24,21 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-    
+
     - name: Get supported Python versions
       id: get-versions
       run: |
         # Install dependencies for the version script
         pip install requests packaging
-        
+
         # Use our authoritative Python version script
         echo "🔍 Getting supported Python versions..."
         OUTPUT=$(python3 scripts/check_python_versions.py --format=ci)
-        
+
         # Parse the output
         VERSIONS_JSON=$(echo "$OUTPUT" | grep "^versions=" | cut -d= -f2-)
         LATEST=$(echo "$OUTPUT" | grep "^latest=" | cut -d= -f2-)
-        
+
         echo "python-versions=$VERSIONS_JSON" >> $GITHUB_OUTPUT
         echo "latest-python=$LATEST" >> $GITHUB_OUTPUT
         echo "🐍 Supported Python versions: $VERSIONS_JSON"
@@ -143,57 +143,57 @@ jobs:
         pytest --collect-only tests/ | grep "test session starts"
         DISCOVERED_TESTS=$(pytest --collect-only -q tests/ 2>/dev/null | grep -c "::test_" || echo "0")
         echo "Discovered ${DISCOVERED_TESTS} test functions"
-        
+
         if [ "${DISCOVERED_TESTS}" -lt 50 ]; then
           echo "❌ ERROR: Only ${DISCOVERED_TESTS} tests discovered. Expected at least 50."
           exit 1
         fi
-        
+
         echo "✅ Test discovery looks good: ${DISCOVERED_TESTS} tests found"
 
     - name: Check test file naming conventions
       run: |
         echo "📝 Checking test file naming conventions..."
-        
+
         # Check that all test files follow naming convention
         INVALID_NAMES=$(find tests/ -name "*.py" -not -name "test_*.py" -not -name "conftest.py" -not -name "__init__.py" -not -name "README.md" | wc -l)
-        
+
         if [ "${INVALID_NAMES}" -gt 0 ]; then
           echo "❌ ERROR: Found test files not following 'test_*.py' convention:"
           find tests/ -name "*.py" -not -name "test_*.py" -not -name "conftest.py" -not -name "__init__.py"
           exit 1
         fi
-        
+
         echo "✅ All test files follow naming conventions"
 
     - name: Verify test categories are complete
       run: |
         echo "🏷️  Checking test categories..."
-        
+
         REQUIRED_TEST_CATEGORIES=(
           "test_basic.py"
-          "test_argument_spec.py" 
+          "test_argument_spec.py"
           "test_generator_core.py"
           "test_variable_extraction.py"
           "test_integration.py"
           "test_edge_cases.py"
           "test_type_inference.py"
         )
-        
+
         MISSING_CATEGORIES=()
-        
+
         for category in "${REQUIRED_TEST_CATEGORIES[@]}"; do
           if [ ! -f "tests/${category}" ]; then
             MISSING_CATEGORIES+=("${category}")
           fi
         done
-        
+
         if [ ${#MISSING_CATEGORIES[@]} -gt 0 ]; then
           echo "❌ ERROR: Missing required test categories:"
           printf '%s\n' "${MISSING_CATEGORIES[@]}"
           exit 1
         fi
-        
+
         echo "✅ All required test categories present"
 
   lint-and-format:
@@ -222,6 +222,7 @@ jobs:
   test-installation:
     name: Test Package Installation
     runs-on: ubuntu-latest
+    needs: get-python-versions
     strategy:
       matrix:
         install-method: ["pip-editable", "pip-wheel", "direct"]
@@ -258,15 +259,15 @@ jobs:
       run: |
         if [ "${{ matrix.install-method }}" != "direct" ]; then
           echo "🧪 Testing installed commands..."
-          
+
           # Test that commands are available
           which ansible-argument-spec-generator
           which generate-argument-spec
-          
+
           # Test help output
           ansible-argument-spec-generator --help
           generate-argument-spec --help
-          
+
           echo "✅ Command installation successful"
         else
           echo "🧪 Testing direct module execution..."
@@ -297,7 +298,7 @@ jobs:
       run: |
         echo "🏗️  Creating test collection structure..."
         mkdir -p test_collection/roles/test_role/{defaults,tasks,meta}
-        
+
         # Create galaxy.yml
         cat > test_collection/galaxy.yml << 'EOF'
         namespace: test
@@ -307,7 +308,7 @@ jobs:
         authors:
           - Integration Test <test@example.com>
         EOF
-        
+
         # Create role defaults
         cat > test_collection/roles/test_role/defaults/main.yml << 'EOF'
         app_name: test_app
@@ -318,7 +319,7 @@ jobs:
           - nginx
           - postgresql
         EOF
-        
+
         # Create role tasks
         cat > test_collection/roles/test_role/tasks/main.yml << 'EOF'
         ---
@@ -327,20 +328,20 @@ jobs:
             name: "{{ packages }}"
             state: present
           when: app_enabled
-        
+
         - name: Configure application
           template:
             src: config.j2
             dest: "{{ config_path }}/app.conf"
           notify: restart app
-        
+
         - name: Assert variables
           assert:
             that:
               - app_name is defined
               - app_port is defined
         EOF
-        
+
         # Create role meta
         cat > test_collection/roles/test_role/meta/main.yml << 'EOF'
         galaxy_info:
@@ -355,15 +356,15 @@ jobs:
         echo "🚀 Running generator on test collection..."
         cd test_collection
         ansible-argument-spec-generator -v
-        
+
         # Verify output was created
         if [ ! -f "roles/test_role/meta/argument_specs.yml" ]; then
           echo "❌ ERROR: argument_specs.yml was not created"
           exit 1
         fi
-        
+
         echo "✅ Integration test successful"
-        
+
         # Show generated content
         echo "📄 Generated argument_specs.yml:"
         cat roles/test_role/meta/argument_specs.yml
@@ -379,20 +380,20 @@ jobs:
       run: |
         echo "📊 Test Summary:"
         echo "===================="
-        
+
         JOBS_STATUS=()
         JOBS_STATUS+=("test:${{ needs.test.result }}")
         JOBS_STATUS+=("test-completeness:${{ needs.test-completeness.result }}")
         JOBS_STATUS+=("lint-and-format:${{ needs.lint-and-format.result }}")
         JOBS_STATUS+=("test-installation:${{ needs.test-installation.result }}")
         JOBS_STATUS+=("integration-test:${{ needs.integration-test.result }}")
-        
+
         ALL_PASSED=true
-        
+
         for job_status in "${JOBS_STATUS[@]}"; do
           job_name=${job_status%:*}
           status=${job_status#*:}
-          
+
           if [ "$status" = "success" ]; then
             echo "✅ $job_name: PASSED"
           else
@@ -400,9 +401,9 @@ jobs:
             ALL_PASSED=false
           fi
         done
-        
+
         echo "===================="
-        
+
         if [ "$ALL_PASSED" = true ]; then
           echo "🎉 ALL TESTS PASSED!"
         else

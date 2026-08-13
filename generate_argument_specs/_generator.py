@@ -14,6 +14,7 @@ import yaml
 from ._exceptions import (
     CollectionNotFoundError,
     ConfigError,
+    GeneratorError,
     RoleNotFoundError,
     ValidationError,
 )
@@ -35,6 +36,8 @@ class ArgumentSpecsGenerator(
         collection_mode: bool = True,
         verbosity: int = 0,
         dry_run: bool = False,
+        include_vars: bool = False,
+        backup: bool = True,
     ):
         self.entry_points: Dict[str, EntryPointSpec] = {}
         self.collection_mode = collection_mode
@@ -42,6 +45,8 @@ class ArgumentSpecsGenerator(
         self.variable_context: Dict[str, Dict[str, Any]] = {}
         self.verbosity = verbosity
         self.dry_run = dry_run
+        self.include_vars = include_vars
+        self.backup = backup
         self.current_role = ""
         self.stats = {
             "roles_processed": 0,
@@ -83,7 +88,9 @@ class ArgumentSpecsGenerator(
         self.log(3, f"      {message}", role_prefix)
 
     def log_error(self, message: str, role_prefix: bool = True):
-        """Log error message (always shown regardless of verbosity)"""
+        """Log error message (shown unless quiet mode)."""
+        if self.verbosity < 0:
+            return
         prefix = f"[{self.current_role}] " if role_prefix and self.current_role else ""
         print(f"{prefix}{message}")
 
@@ -96,6 +103,8 @@ class ArgumentSpecsGenerator(
 
     def log_summary(self):
         """Log final summary"""
+        if self.verbosity < 0:
+            return
         print(f"\n{'='*60}")
         print("  ARGUMENT SPECS GENERATION SUMMARY")
         print("=" * 60)
@@ -133,6 +142,150 @@ class ArgumentSpecsGenerator(
         except Exception as e:
             self.log_verbose(f"Could not parse {file_path}: {e}")
             return None
+
+    def _load_yaml_mapping_dir(self, directory: Path) -> Dict[str, Any]:
+        """Load and merge all *.yml/*.yaml mapping files in a directory."""
+        merged: Dict[str, Any] = {}
+        if not directory.is_dir():
+            return merged
+
+        files = sorted(directory.glob("*.yml")) + sorted(directory.glob("*.yaml"))
+        # Prefer main.yml first so other files can override intentionally
+        files = sorted(
+            files,
+            key=lambda p: (0 if p.name in ("main.yml", "main.yaml") else 1, p.name),
+        )
+        for yaml_file in files:
+            data = self._safe_load_yaml_file(yaml_file)
+            if isinstance(data, dict):
+                merged.update(data)
+            elif data is not None:
+                self.log_verbose(
+                    f"Ignoring non-mapping YAML in {yaml_file} (expected a dictionary)"
+                )
+        return merged
+
+    def _extract_template_variables(self, role_dir: Path) -> Set[str]:
+        """Extract Jinja2 variables from role templates."""
+        variables: Set[str] = set()
+        templates_dir = role_dir / "templates"
+        if not templates_dir.is_dir():
+            return variables
+
+        var_pattern = re.compile(
+            r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\|[^}]*)?\s*\}\}"
+        )
+        for template_file in templates_dir.rglob("*"):
+            if not template_file.is_file():
+                continue
+            try:
+                content = template_file.read_text(encoding="utf-8", errors="ignore")
+            except (OSError, IOError) as e:
+                self.log_verbose(f"Could not read template {template_file}: {e}")
+                continue
+            for match in var_pattern.findall(content):
+                if self._is_valid_role_variable(match):
+                    variables.add(match)
+        return variables
+
+    def _lookup_known_value(self, var_name: str, analysis: Dict[str, Any]) -> Any:
+        """Return a known value for typing from defaults or vars."""
+        if var_name in analysis.get("defaults", {}):
+            return analysis["defaults"][var_name]
+        if var_name in analysis.get("vars", {}):
+            return analysis["vars"][var_name]
+        return None
+
+    def _build_task_argument_spec(
+        self,
+        var_name: str,
+        analysis: Dict[str, Any],
+        existing_opt: Dict[str, Any],
+        description: str,
+    ) -> ArgumentSpec:
+        """Build an ArgumentSpec for a task/template-discovered variable."""
+        is_existing = bool(existing_opt.get("_existing", False))
+        in_defaults = var_name in analysis.get("defaults", {})
+        in_vars = var_name in analysis.get("vars", {})
+        known_value = self._lookup_known_value(var_name, analysis)
+
+        # Prefer curated existing fields when present
+        if existing_opt.get("_existing") and existing_opt.get("type"):
+            version_added = existing_opt.get("version_added")
+            no_log = existing_opt.get("no_log")
+            if no_log is None and self._should_no_log(var_name):
+                no_log = True
+            return ArgumentSpec(
+                name=var_name,
+                type=existing_opt.get("type", "str"),
+                required=existing_opt.get(
+                    "required", not (in_defaults or (self.include_vars and in_vars))
+                ),
+                default=(
+                    analysis["defaults"][var_name]
+                    if in_defaults
+                    else existing_opt.get("default")
+                ),
+                choices=existing_opt.get("choices"),
+                description=existing_opt.get("description") or description,
+                elements=existing_opt.get("elements"),
+                options=existing_opt.get("options"),
+                version_added=version_added,
+                no_log=no_log,
+            )
+
+        if known_value is not None and (in_defaults or (self.include_vars and in_vars)):
+            return self._infer_argument_spec(
+                var_name,
+                known_value,
+                existing_opt.get("description") or description,
+                existing_opt.get("version_added"),
+                is_existing,
+                analysis.get("version", "1.0.0"),
+                existing_opt=existing_opt,
+            )
+
+        # Task/template-only: infer type from a known value when available, else str
+        if known_value is not None:
+            arg_spec = self._infer_argument_spec(
+                var_name,
+                known_value,
+                existing_opt.get("description") or description,
+                existing_opt.get("version_added"),
+                is_existing,
+                analysis.get("version", "1.0.0"),
+                existing_opt=existing_opt,
+            )
+            # Value came from vars while include_vars is off — typing only
+            arg_spec.default = None
+            if "required" not in existing_opt:
+                arg_spec.required = True
+            if existing_opt.get("description"):
+                arg_spec.description = existing_opt["description"]
+            else:
+                arg_spec.description = description
+            return arg_spec
+
+        version_added = existing_opt.get("version_added")
+        if version_added is None and not is_existing:
+            version_added = analysis.get("version", "1.0.0")
+
+        no_log = existing_opt.get("no_log")
+        if no_log is None and self._should_no_log(var_name):
+            no_log = True
+
+        return ArgumentSpec(
+            name=var_name,
+            type=existing_opt.get("type", "str"),
+            required=existing_opt.get("required", True),
+            default=existing_opt.get("default"),
+            choices=existing_opt.get("choices"),
+            description=existing_opt.get("description") or description,
+            elements=existing_opt.get("elements"),
+            options=existing_opt.get("options"),
+            version_added=version_added,
+            no_log=no_log,
+        )
 
     def is_collection_root(self, path: str = ".") -> bool:
         """Check if the current directory is a collection root"""
@@ -215,23 +368,16 @@ class ArgumentSpecsGenerator(
         else:
             self.log_trace(f"Using default version: {version_info['version']}")
 
-        # Analyze defaults/main.yml
-        defaults_file = role_dir / "defaults" / "main.yml"
-        if defaults_file.exists():
-            defaults = self._safe_load_yaml_file(defaults_file)
-            if defaults is not None:
-                analysis["defaults"] = defaults if isinstance(defaults, dict) else {}
-            else:
-                analysis["defaults"] = {}
+        # Analyze defaults/*.yml and vars/*.yml
+        analysis["defaults"] = self._load_yaml_mapping_dir(role_dir / "defaults")
+        analysis["vars"] = self._load_yaml_mapping_dir(role_dir / "vars")
 
-        # Analyze vars/main.yml
-        vars_file = role_dir / "vars" / "main.yml"
-        if vars_file.exists():
-            vars_data = self._safe_load_yaml_file(vars_file)
-            if vars_data is not None:
-                analysis["vars"] = vars_data if isinstance(vars_data, dict) else {}
-            else:
-                analysis["vars"] = {}
+        # Analyze templates for variable usage
+        analysis["template_vars"] = self._extract_template_variables(role_dir)
+        if analysis["template_vars"]:
+            self.log_debug(
+                f"Found {len(analysis['template_vars'])} variable(s) in templates"
+            )
 
         # Analyze meta/main.yml for author information
         meta_file = role_dir / "meta" / "main.yml"
@@ -306,7 +452,7 @@ class ArgumentSpecsGenerator(
                     "description": f"Variable from defaults: {var_name}",
                 }
 
-        if analysis.get("vars"):
+        if self.include_vars and analysis.get("vars"):
             for var_name, var_value in analysis["vars"].items():
                 if var_name not in all_variables:
                     all_variables[var_name] = {
@@ -586,6 +732,11 @@ class ArgumentSpecsGenerator(
         self.current_role = ""
         self.log_summary()
 
+        if self.stats["roles_failed"] > 0:
+            raise GeneratorError(
+                f"{self.stats['roles_failed']} role(s) failed during processing"
+            )
+
     def _merge_included_variables(
         self,
         entry_point: EntryPointSpec,
@@ -593,7 +744,7 @@ class ArgumentSpecsGenerator(
         analysis: Dict[str, Any],
         existing_options: Dict[str, Dict[str, Any]] = None,
     ):
-        """Merge variables from included task files into the entry point"""
+        """Merge variables from included task files into the entry point (recursive)."""
         if existing_options is None:
             existing_options = {}
 
@@ -602,112 +753,31 @@ class ArgumentSpecsGenerator(
         )
         file_variables = analysis.get("file_variables", {})
 
-        for included_file in included_files:
-            if included_file in file_variables:
-                file_vars = file_variables[included_file]
-                for var_name in file_vars:
-                    if var_name not in entry_point.options:
-                        existing_opt = existing_options.get(var_name, {})
-                        existing_desc = existing_opt.get("description")
-                        existing_version = existing_opt.get("version_added")
-                        is_existing = existing_opt.get("_existing", False)
-
-                        if existing_desc:
-                            description = existing_desc
-                            self.log_trace(f"Using existing description for {var_name}")
-                        else:
-                            description = f"Variable used in included task file: {included_file}.yml"
-
-                        version_added = None
-                        if existing_version:
-                            version_added = existing_version
-                            self.log_trace(
-                                f"Using existing version_added for {var_name}: {version_added}"
-                            )
-                        elif is_existing:
-                            self.log_trace(
-                                f"Variable {var_name} existed in argument specs - not adding version_added"
-                            )
-                        else:
-                            version_added = analysis["version"]
-                            self.log_trace(
-                                f"Adding version_added for new task variable {var_name}: {version_added}"
-                            )
-
-                        has_default = var_name in analysis.get(
-                            "defaults", {}
-                        ) or var_name in analysis.get("vars", {})
-
-                        arg_spec = ArgumentSpec(
-                            name=var_name,
-                            type="str",
-                            description=description,
-                            version_added=version_added,
-                            required=not has_default,
-                        )
-                        entry_point.options[var_name] = arg_spec
-                        req_status = "required" if not has_default else "optional"
-                        self.log_debug(
-                            f"Added {req_status} variable from {included_file}.yml: {var_name}"
-                        )
-
         def collect_recursive_variables(file_name: str, visited: set):
             if file_name in visited:
                 return
             visited.add(file_name)
 
             if file_name in file_variables:
-                file_vars = file_variables[file_name]
-                for var_name in file_vars:
-                    if var_name not in entry_point.options:
-                        existing_opt = existing_options.get(var_name, {})
-                        existing_desc = existing_opt.get("description")
-                        existing_version = existing_opt.get("version_added")
-                        is_existing = existing_opt.get("_existing", False)
+                for var_name in file_variables[file_name]:
+                    if var_name in entry_point.options:
+                        continue
+                    existing_opt = existing_options.get(var_name, {})
+                    description = existing_opt.get("description") or (
+                        f"Variable used in included task file: {file_name}.yml"
+                    )
+                    arg_spec = self._build_task_argument_spec(
+                        var_name, analysis, existing_opt, description
+                    )
+                    entry_point.options[var_name] = arg_spec
+                    req_status = "required" if arg_spec.required else "optional"
+                    self.log_debug(
+                        f"Added {req_status} variable from {file_name}.yml: {var_name}"
+                    )
 
-                        if existing_desc:
-                            description = existing_desc
-                            self.log_trace(f"Using existing description for {var_name}")
-                        else:
-                            description = (
-                                f"Variable used in included task file: {file_name}.yml"
-                            )
-
-                        version_added = None
-                        if existing_version:
-                            version_added = existing_version
-                            self.log_trace(
-                                f"Using existing version_added for {var_name}: {version_added}"
-                            )
-                        elif is_existing:
-                            self.log_trace(
-                                f"Variable {var_name} existed in argument specs - not adding version_added"
-                            )
-                        else:
-                            version_added = analysis["version"]
-                            self.log_trace(
-                                f"Adding version_added for new task variable {var_name}: {version_added}"
-                            )
-
-                        has_default = var_name in analysis.get(
-                            "defaults", {}
-                        ) or var_name in analysis.get("vars", {})
-
-                        arg_spec = ArgumentSpec(
-                            name=var_name,
-                            type="str",
-                            description=description,
-                            version_added=version_added,
-                            required=not has_default,
-                        )
-                        entry_point.options[var_name] = arg_spec
-                        req_status = "required" if not has_default else "optional"
-                        self.log_debug(
-                            f"Added {req_status} variable from {file_name}.yml (recursive): {var_name}"
-                        )
-
-            sub_includes = analysis.get("file_includes_map", {}).get(file_name, set())
-            for sub_included in sub_includes:
+            for sub_included in analysis.get("file_includes_map", {}).get(
+                file_name, set()
+            ):
                 collect_recursive_variables(sub_included, visited)
 
         visited_files = set()
@@ -729,54 +799,25 @@ class ArgumentSpecsGenerator(
         entry_point_vars = file_variables.get(entry_point_name, set())
 
         self.log_debug(
-            f"Adding variables from entry point file '{entry_point_name}': {sorted(entry_point_vars) if entry_point_vars else 'none'}"
+            f"Adding variables from entry point file '{entry_point_name}': "
+            f"{sorted(entry_point_vars) if entry_point_vars else 'none'}"
         )
 
         for var_name in entry_point_vars:
-            if var_name not in entry_point.options:
-                existing_opt = existing_options.get(var_name, {})
-                existing_desc = existing_opt.get("description")
-                existing_version = existing_opt.get("version_added")
-                is_existing = existing_opt.get("_existing", False)
-
-                if existing_desc:
-                    description = existing_desc
-                    self.log_trace(f"Using existing description for {var_name}")
-                else:
-                    description = f"Variable used in {entry_point_name} entry point"
-
-                version_added = None
-                if existing_version:
-                    version_added = existing_version
-                    self.log_trace(
-                        f"Using existing version_added for {var_name}: {version_added}"
-                    )
-                elif is_existing:
-                    self.log_trace(
-                        f"Variable {var_name} existed in argument specs - not adding version_added"
-                    )
-                else:
-                    version_added = analysis["version"]
-                    self.log_trace(
-                        f"Adding version_added for new entry point variable {var_name}: {version_added}"
-                    )
-
-                has_default = var_name in analysis.get(
-                    "defaults", {}
-                ) or var_name in analysis.get("vars", {})
-
-                arg_spec = ArgumentSpec(
-                    name=var_name,
-                    type="str",
-                    description=description,
-                    version_added=version_added,
-                    required=not has_default,
-                )
-                entry_point.options[var_name] = arg_spec
-                req_status = "required" if not has_default else "optional"
-                self.log_debug(
-                    f"Added {req_status} variable from entry point {entry_point_name}: {var_name}"
-                )
+            if var_name in entry_point.options:
+                continue
+            existing_opt = existing_options.get(var_name, {})
+            description = existing_opt.get("description") or (
+                f"Variable used in {entry_point_name} entry point"
+            )
+            arg_spec = self._build_task_argument_spec(
+                var_name, analysis, existing_opt, description
+            )
+            entry_point.options[var_name] = arg_spec
+            req_status = "required" if arg_spec.required else "optional"
+            self.log_debug(
+                f"Added {req_status} variable from entry point {entry_point_name}: {var_name}"
+            )
 
     def _create_entry_point_spec(
         self,
@@ -839,6 +880,16 @@ class ArgumentSpecsGenerator(
             author=author,
         )
 
+        # Preserve conditionals from existing specs
+        entry_point.required_if = existing_specs.get("required_if") or None
+        entry_point.required_one_of = existing_specs.get("required_one_of") or None
+        entry_point.mutually_exclusive = (
+            existing_specs.get("mutually_exclusive") or None
+        )
+        entry_point.required_together = (
+            existing_specs.get("required_together") or None
+        )
+
         existing_options = existing_specs.get("options", {})
         if existing_options:
             self.log_trace(
@@ -852,7 +903,8 @@ class ArgumentSpecsGenerator(
             is_existing = existing_opt.get("_existing", False)
 
             self.log_trace(
-                f"Processing default variable '{var_name}': existing={is_existing}, has_existing_version={bool(existing_version)}"
+                f"Processing default variable '{var_name}': existing={is_existing}, "
+                f"has_existing_version={bool(existing_version)}"
             )
 
             arg_spec = self._infer_argument_spec(
@@ -862,11 +914,14 @@ class ArgumentSpecsGenerator(
                 existing_version,
                 is_existing,
                 analysis["version"],
+                existing_opt=existing_opt,
             )
             entry_point.options[var_name] = arg_spec
 
-        for var_name, var_value in analysis["vars"].items():
-            if var_name not in entry_point.options:
+        if self.include_vars:
+            for var_name, var_value in analysis["vars"].items():
+                if var_name in entry_point.options:
+                    continue
                 existing_opt = existing_options.get(var_name, {})
                 existing_desc = existing_opt.get("description")
                 existing_version = existing_opt.get("version_added")
@@ -878,9 +933,13 @@ class ArgumentSpecsGenerator(
                     existing_version,
                     is_existing,
                     analysis["version"],
+                    existing_opt=existing_opt,
                 )
                 if not existing_desc:
                     arg_spec.description = f"{arg_spec.description} (defined in vars)"
+                # Value from vars becomes the default; keep optional unless curated otherwise
+                if "required" not in existing_opt:
+                    arg_spec.required = False
                 entry_point.options[var_name] = arg_spec
 
         self._add_entry_point_variables(
@@ -890,6 +949,30 @@ class ArgumentSpecsGenerator(
         self._merge_included_variables(
             entry_point, entry_point_name, analysis, existing_options
         )
+
+        # Template variables belong on the main entry point
+        if entry_point_name == "main":
+            for var_name in analysis.get("template_vars", set()):
+                if var_name in entry_point.options:
+                    continue
+                existing_opt = existing_options.get(var_name, {})
+                description = existing_opt.get("description") or (
+                    f"Variable used in templates: {var_name}"
+                )
+                entry_point.options[var_name] = self._build_task_argument_spec(
+                    var_name, analysis, existing_opt, description
+                )
+
+        # Keep manually curated options that were not rediscovered
+        for opt_name, opt_data in existing_options.items():
+            if opt_name in entry_point.options:
+                continue
+            if not isinstance(opt_data, dict):
+                continue
+            entry_point.options[opt_name] = ArgumentSpec.from_existing_dict(
+                opt_name, opt_data
+            )
+            self.log_debug(f"Preserved existing option not rediscovered: {opt_name}")
 
         return entry_point
 
@@ -1005,6 +1088,15 @@ class ArgumentSpecsGenerator(
                     if "author" in entry_data:
                         entry_specs["author"] = entry_data["author"]
 
+                    for cond_key in (
+                        "required_if",
+                        "required_one_of",
+                        "mutually_exclusive",
+                        "required_together",
+                    ):
+                        if cond_key in entry_data:
+                            entry_specs[cond_key] = entry_data[cond_key]
+
                     if "options" in entry_data and isinstance(
                         entry_data["options"], dict
                     ):
@@ -1013,12 +1105,19 @@ class ArgumentSpecsGenerator(
                             opt_spec = {"_existing": True}
 
                             if isinstance(opt_data, dict):
-                                if "description" in opt_data:
-                                    opt_spec["description"] = opt_data["description"]
-                                if "version_added" in opt_data:
-                                    opt_spec["version_added"] = opt_data[
-                                        "version_added"
-                                    ]
+                                for field in (
+                                    "description",
+                                    "version_added",
+                                    "type",
+                                    "required",
+                                    "default",
+                                    "choices",
+                                    "elements",
+                                    "options",
+                                    "no_log",
+                                ):
+                                    if field in opt_data:
+                                        opt_spec[field] = opt_data[field]
                             else:
                                 self.log_debug(
                                     f"Warning: Variable '{opt_name}' in existing specs is not properly structured"
@@ -1299,6 +1398,8 @@ class ArgumentSpecsGenerator(
                     description=arg_config.get("description"),
                     elements=arg_config.get("elements"),
                     version_added=arg_config.get("version_added"),
+                    no_log=arg_config.get("no_log"),
+                    options=arg_config.get("options"),
                 )
                 entry_point.options[arg_name] = arg_spec
 
@@ -1315,9 +1416,68 @@ class ArgumentSpecsGenerator(
 
     # --------------------------------------------------------------- validation
 
+    def _validate_option(
+        self, arg_name: str, arg_spec: ArgumentSpec, valid_types: set
+    ) -> bool:
+        """Validate a single option; returns True when valid."""
+        ok = True
+
+        if arg_spec.type not in valid_types:
+            self.log_error(f"Invalid type '{arg_spec.type}' for argument '{arg_name}'")
+            ok = False
+
+        if arg_spec.required and arg_spec.default is not None:
+            self.log_error(
+                f"Argument '{arg_name}' cannot be both required and have a default"
+            )
+            ok = False
+
+        if arg_spec.choices is not None and not isinstance(arg_spec.choices, list):
+            self.log_error(f"Argument '{arg_name}' choices must be a list")
+            ok = False
+
+        if arg_spec.elements is not None and arg_spec.elements not in valid_types:
+            self.log_error(
+                f"Invalid elements type '{arg_spec.elements}' for argument '{arg_name}'"
+            )
+            ok = False
+
+        if arg_spec.type in ["list", "dict"] and not arg_spec.elements:
+            self.log_verbose(
+                f"No elements type specified for {arg_spec.type} argument '{arg_name}'"
+            )
+
+        if arg_spec.type == "dict" and arg_spec.options:
+            if not isinstance(arg_spec.options, dict):
+                self.log_error(
+                    f"Argument '{arg_name}' options must be a dictionary of nested specs"
+                )
+                ok = False
+            else:
+                for nested_name, nested_data in arg_spec.options.items():
+                    if isinstance(nested_data, ArgumentSpec):
+                        nested_spec = nested_data
+                    elif isinstance(nested_data, dict):
+                        nested_spec = ArgumentSpec.from_existing_dict(
+                            nested_name, nested_data
+                        )
+                    else:
+                        self.log_error(
+                            f"Nested option '{arg_name}.{nested_name}' must be a mapping"
+                        )
+                        ok = False
+                        continue
+                    if not self._validate_option(
+                        f"{arg_name}.{nested_name}", nested_spec, valid_types
+                    ):
+                        ok = False
+
+        return ok
+
     def validate_specs(self) -> bool:
         """Validate the generated argument specs"""
         valid = True
+        valid_types = {t.value for t in ArgumentType}
 
         for entry_name, entry_point in self.entry_points.items():
             self.log_info(f"Validating entry point: {entry_name}")
@@ -1326,16 +1486,8 @@ class ArgumentSpecsGenerator(
                 self.log_verbose(f"No short_description for {entry_name}")
 
             for arg_name, arg_spec in entry_point.options.items():
-                if arg_spec.type not in [t.value for t in ArgumentType]:
-                    self.log_error(
-                        f"Invalid type '{arg_spec.type}' for argument '{arg_name}'"
-                    )
+                if not self._validate_option(arg_name, arg_spec, valid_types):
                     valid = False
-
-                if arg_spec.type in ["list", "dict"] and not arg_spec.elements:
-                    self.log_verbose(
-                        f"No elements type specified for {arg_spec.type} argument '{arg_name}'"
-                    )
 
             all_args = set(entry_point.options.keys())
 
@@ -1345,29 +1497,56 @@ class ArgumentSpecsGenerator(
                 ("mutually_exclusive", entry_point.mutually_exclusive or []),
                 ("required_together", entry_point.required_together or []),
             ]:
-                for condition in conditions:
-                    if condition_type == "required_if":
-                        if len(condition) >= 3:
-                            param = condition[0]
-                            required_params = (
-                                condition[2]
-                                if isinstance(condition[2], list)
-                                else [condition[2]]
-                            )
+                if not isinstance(conditions, list):
+                    self.log_error(
+                        f"{condition_type} for '{entry_name}' must be a list"
+                    )
+                    valid = False
+                    continue
 
-                            if param not in all_args:
+                for condition in conditions:
+                    if not isinstance(condition, (list, tuple)):
+                        self.log_error(
+                            f"{condition_type} entry for '{entry_name}' must be a list"
+                        )
+                        valid = False
+                        continue
+
+                    if condition_type == "required_if":
+                        if len(condition) < 3:
+                            self.log_error(
+                                f"required_if for '{entry_name}' must be "
+                                f"[param, value, required_params, ...]"
+                            )
+                            valid = False
+                            continue
+
+                        param = condition[0]
+                        required_params = (
+                            condition[2]
+                            if isinstance(condition[2], list)
+                            else [condition[2]]
+                        )
+
+                        if param not in all_args:
+                            self.log_error(
+                                f"{condition_type} references unknown argument '{param}'"
+                            )
+                            valid = False
+
+                        for req_param in required_params:
+                            if req_param not in all_args:
                                 self.log_error(
-                                    f"{condition_type} references unknown argument '{param}'"
+                                    f"{condition_type} references unknown argument '{req_param}'"
                                 )
                                 valid = False
-
-                            for req_param in required_params:
-                                if req_param not in all_args:
-                                    self.log_error(
-                                        f"{condition_type} references unknown argument '{req_param}'"
-                                    )
-                                    valid = False
                     else:
+                        if len(condition) < 2:
+                            self.log_error(
+                                f"{condition_type} for '{entry_name}' needs at least 2 parameters"
+                            )
+                            valid = False
+                            continue
                         for param in condition:
                             if param not in all_args:
                                 self.log_error(

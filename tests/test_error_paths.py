@@ -30,15 +30,10 @@ class TestSaveToFileErrors:
     def test_save_to_file_permission_error(self, temp_dir):
         gen = ArgumentSpecsGenerator()
         gen.add_entry_point(EntryPointSpec(name="main", short_description="Test"))
-        restricted = temp_dir / "restricted"
-        restricted.mkdir()
-        os.chmod(str(restricted), 0o000)
-        out = restricted / "specs.yml"
-        try:
+        out = temp_dir / "specs.yml"
+        with patch("builtins.open", side_effect=PermissionError("denied")):
             with pytest.raises(PermissionError):
                 gen.save_to_file(str(out))
-        finally:
-            os.chmod(str(restricted), 0o755)
 
     def test_save_to_file_overwrites_existing(self, temp_dir):
         gen = ArgumentSpecsGenerator()

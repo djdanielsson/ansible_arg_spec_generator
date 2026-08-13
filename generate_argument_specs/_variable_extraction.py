@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Set
 
 import yaml
 
-from ._constants import _BUILTIN_PREFIXES, _NON_VARIABLES
+from ._constants import _BUILTIN_EXACT, _BUILTIN_PREFIXES, _NON_VARIABLES
 
 
 class VariableExtractionMixin:
@@ -272,9 +272,11 @@ class VariableExtractionMixin:
         if not var_name or not isinstance(var_name, str):
             return False
 
+        lowered = var_name.lower()
         if (
             any(var_name.startswith(prefix) for prefix in _BUILTIN_PREFIXES)
-            or var_name.lower() in _NON_VARIABLES
+            or lowered in _BUILTIN_EXACT
+            or lowered in _NON_VARIABLES
             or "(" in var_name
             or "[" in var_name
             or "." in var_name

@@ -25,12 +25,12 @@ class TestProcessCollection:
         generator = ArgumentSpecsGenerator(collection_mode=True, verbosity=0)
         generator.process_collection(str(sample_collection_structure))
 
-        assert generator.stats["roles_processed"] >= 2
+        assert generator.stats["roles_processed"] == 2
+        assert generator.stats["roles_failed"] == 0
+        assert generator.processed_roles == ["database", "webapp"]
         assert generator.stats["entry_points_created"] >= 2
-        assert "webapp" in generator.processed_roles
-        assert "database" in generator.processed_roles
 
-        for role_name in generator.processed_roles:
+        for role_name in ("webapp", "database"):
             specs_file = (
                 sample_collection_structure
                 / "roles"
@@ -41,6 +41,12 @@ class TestProcessCollection:
             assert specs_file.exists(), f"Missing specs for {role_name}"
             content = yaml.safe_load(specs_file.read_text())
             assert "argument_specs" in content
+            assert "main" in content["argument_specs"]
+            opts = content["argument_specs"]["main"]["options"]
+            assert f"{role_name}_port" in opts
+            assert opts[f"{role_name}_port"]["type"] == "int"
+            assert opts[f"{role_name}_enabled"]["type"] == "bool"
+            assert f"__{role_name}_internal" not in opts
 
     def test_process_collection_handles_failing_role(self, temp_dir):
         coll = temp_dir / "coll"
@@ -60,7 +66,9 @@ class TestProcessCollection:
 
         generator = ArgumentSpecsGenerator(collection_mode=True, verbosity=0)
         generator.process_collection(str(coll))
-        assert generator.stats["roles_processed"] >= 1
+        assert generator.stats["roles_processed"] == 1
+        assert generator.processed_roles == ["bad"]
+        assert generator.stats["roles_failed"] == 0
 
 
 class TestProcessSingleRole:
@@ -70,10 +78,21 @@ class TestProcessSingleRole:
         generator = ArgumentSpecsGenerator(collection_mode=False, verbosity=0)
         generator.process_single_role(str(sample_single_role), "sample_role")
 
-        assert len(generator.entry_points) >= 1
-        assert "main" in generator.entry_points
+        assert set(generator.entry_points.keys()) == {"main"}
         main_ep = generator.entry_points["main"]
-        assert len(main_ep.options) > 0
+        expected = {
+            "sample_role_enabled",
+            "sample_role_port",
+            "sample_role_config_path",
+            "sample_role_packages",
+            "sample_role_debug",
+            "sample_role_state",
+        }
+        assert expected.issubset(main_ep.options.keys())
+        assert main_ep.options["sample_role_port"].type == "int"
+        assert main_ep.options["sample_role_enabled"].type == "bool"
+        assert main_ep.options["sample_role_packages"].type == "list"
+        assert "__sample_role_internal" not in main_ep.options
 
     def test_process_single_role_sets_current_role(self, sample_single_role):
         generator = ArgumentSpecsGenerator(collection_mode=False, verbosity=0)
@@ -88,14 +107,19 @@ class TestProcessSingleRole:
     def test_process_single_role_updates_stats(self, sample_single_role):
         generator = ArgumentSpecsGenerator(collection_mode=False, verbosity=0)
         generator.process_single_role(str(sample_single_role), "sample_role")
-        assert generator.stats["entry_points_created"] >= 1
-        assert generator.stats["total_variables"] >= 1
+        assert generator.stats["entry_points_created"] == 1
+        assert generator.stats["total_variables"] == len(
+            generator.entry_points["main"].options
+        )
+        assert generator.stats["total_variables"] >= 5
 
     def test_process_single_role_collection_mode_saves(self, sample_single_role):
         generator = ArgumentSpecsGenerator(collection_mode=True, verbosity=0)
         generator.process_single_role(str(sample_single_role), "sample_role")
         specs_file = sample_single_role / "meta" / "argument_specs.yml"
         assert specs_file.exists()
+        content = yaml.safe_load(specs_file.read_text())
+        assert "sample_role_port" in content["argument_specs"]["main"]["options"]
 
 
 class TestLoadExistingSpecs:

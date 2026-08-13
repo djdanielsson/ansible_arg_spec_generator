@@ -29,9 +29,7 @@ class TestCollectionModeIntegration:
 
             # Find roles
             roles = generator.find_roles(".")
-            assert len(roles) == 2
-            assert "webapp" in roles
-            assert "database" in roles
+            assert roles == ["database", "webapp"]
 
             # Process each role
             for role_name in roles:
@@ -39,14 +37,15 @@ class TestCollectionModeIntegration:
                 analysis = generator.analyze_role_structure(str(role_path))
 
                 assert analysis is not None
-                assert "entry_points" in analysis
-                assert "variables" in analysis
-
-                # Verify entry points were created
-                assert len(analysis["entry_points"]) >= 1
-
-                # Verify variables were extracted
-                assert len(analysis["variables"]) > 0
+                assert "main" in analysis["entry_points"]
+                assert f"{role_name}_port" in analysis["variables"]
+                assert f"{role_name}_enabled" in analysis["variables"]
+                assert analysis["defaults"][f"{role_name}_port"] == 8080
+                assert analysis["defaults"][f"{role_name}_enabled"] is True
+                # Private vars file entry should still be loaded into analysis["vars"]
+                assert f"__{role_name}_internal" in analysis["vars"]
+                # But not exported into combined variables unless include_vars
+                assert f"__{role_name}_internal" not in analysis["variables"]
 
         finally:
             os.chdir(original_cwd)
@@ -136,57 +135,38 @@ class TestSingleRoleModeIntegration:
 
         # Should have extracted variables from defaults
         variables = analysis["variables"]
-        assert len(variables) > 0
+        expected = {
+            "sample_role_enabled",
+            "sample_role_port",
+            "sample_role_config_path",
+            "sample_role_packages",
+            "sample_role_debug",
+        }
+        assert expected.issubset(variables.keys())
+        assert variables["sample_role_port"]["default"] == 8080
 
         # Check for expected variables based on our sample role
         main_variables = analysis["entry_points"]["main"]["variables"]
-        assert len(main_variables) > 0
+        assert expected.issubset(main_variables.keys())
 
     def test_single_role_generates_specs_file(self, sample_single_role):
         """Test that single role mode generates argument specs file"""
-        generator = ArgumentSpecsGenerator(collection_mode=False, verbosity=0)
+        generator = ArgumentSpecsGenerator(
+            collection_mode=True, verbosity=0, backup=False
+        )
+        generator.process_single_role(str(sample_single_role), "sample_role")
 
-        # Analyze role
-        analysis = generator.analyze_role_structure(str(sample_single_role))
-
-        # Create entry point from analysis
-        from generate_argument_specs import EntryPointSpec, ArgumentSpec
-
-        if analysis["entry_points"]:
-            for ep_name, ep_data in analysis["entry_points"].items():
-                entry_point = EntryPointSpec(
-                    name=ep_name,
-                    short_description=f"Auto-generated specs for sample_role - {ep_name} entry point",
-                )
-
-                # Add variables as arguments
-                for var_name, var_info in ep_data.get("variables", {}).items():
-                    arg_spec = ArgumentSpec(
-                        name=var_name,
-                        type=var_info.get("type", "str"),
-                        required=var_info.get("required", False),
-                        default=var_info.get("default"),
-                        description=var_info.get(
-                            "description", f"Auto-generated for {var_name}"
-                        ),
-                    )
-                    entry_point.options[var_name] = arg_spec
-
-                generator.add_entry_point(entry_point)
-
-        # Save to file
         output_file = sample_single_role / "meta" / "argument_specs.yml"
-        output_file.parent.mkdir(exist_ok=True)
-        generator.save_to_file(str(output_file))
-
-        # Verify file exists and is valid
         assert output_file.exists()
 
-        with open(output_file, "r") as f:
-            content = yaml.safe_load(f)
-
-        assert "argument_specs" in content
-        assert len(content["argument_specs"]) >= 1
+        content = yaml.safe_load(output_file.read_text())
+        assert set(content["argument_specs"].keys()) == {"main"}
+        opts = content["argument_specs"]["main"]["options"]
+        assert opts["sample_role_port"]["type"] == "int"
+        assert opts["sample_role_port"]["default"] == 8080
+        assert opts["sample_role_enabled"]["type"] == "bool"
+        assert opts["sample_role_packages"]["type"] == "list"
+        assert "__sample_role_internal" not in opts
 
 
 class TestCommandLineInterface:
@@ -338,12 +318,14 @@ class TestCommandLineInterface:
                 main()
 
             # Check if example config file was created
-            config_files = list(temp_dir.glob("*.yml")) + list(temp_dir.glob("*.yaml"))
-
-            # Should create some example config file
-            # (Implementation might vary, so we just check that something was created)
+            config_file = temp_dir / "example_config.yml"
+            assert config_file.exists()
+            data = yaml.safe_load(config_file.read_text())
+            assert "entry_points" in data
+            assert "main" in data["entry_points"]
+            assert "arguments" in data["entry_points"]["main"]
             captured = capsys.readouterr()
-            assert len(captured.out) > 0
+            assert "example_config.yml" in captured.out
 
         finally:
             os.chdir(original_cwd)
