@@ -32,7 +32,9 @@ PYPROJECT_PATH: Path = Path(__file__).parent.parent / "pyproject.toml"
 MIN_PYTHON_VERSION: str = "3.8"
 
 # The URL for the version manifest. This avoids GitHub API rate limiting.
-VERSIONS_MANIFEST_URL: str = "https://raw.githubusercontent.com/actions/python-versions/main/versions-manifest.json"
+VERSIONS_MANIFEST_URL: str = (
+    "https://raw.githubusercontent.com/actions/python-versions/main/versions-manifest.json"
+)
 
 
 # --- Core Functions ---

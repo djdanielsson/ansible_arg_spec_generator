@@ -886,9 +886,7 @@ class ArgumentSpecsGenerator(
         entry_point.mutually_exclusive = (
             existing_specs.get("mutually_exclusive") or None
         )
-        entry_point.required_together = (
-            existing_specs.get("required_together") or None
-        )
+        entry_point.required_together = existing_specs.get("required_together") or None
 
         existing_options = existing_specs.get("options", {})
         if existing_options:

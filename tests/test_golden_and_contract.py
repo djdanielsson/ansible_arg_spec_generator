@@ -88,8 +88,7 @@ def _build_realistic_role(role: Path) -> None:
         yaml.dump({"__app_internal": "hidden", "app_state": "present"})
     )
 
-    (role / "tasks" / "main.yml").write_text(
-        """---
+    (role / "tasks" / "main.yml").write_text("""---
 - name: Install packages
   package:
     name: "{{ app_packages }}"
@@ -103,17 +102,14 @@ def _build_realistic_role(role: Path) -> None:
   command: /bin/true
   register: app_cmd_result
   changed_when: app_cmd_result.rc != 0
-"""
-    )
-    (role / "tasks" / "configure.yml").write_text(
-        """---
+""")
+    (role / "tasks" / "configure.yml").write_text("""---
 - name: Template config
   template:
     src: app.conf.j2
     dest: "{{ app_config_path }}"
   when: app_password is defined
-"""
-    )
+""")
     (role / "templates" / "app.conf.j2").write_text(
         "port={{ app_port }}\nworkers={{ app_workers }}\nlisten={{ app_listen_host }}\n"
     )
@@ -196,7 +192,9 @@ class TestGoldenRealisticRole:
 
 
 class TestArgumentSpecsContract:
-    def test_sample_collection_roles_satisfy_contract(self, sample_collection_structure):
+    def test_sample_collection_roles_satisfy_contract(
+        self, sample_collection_structure
+    ):
         gen = ArgumentSpecsGenerator(collection_mode=True, verbosity=0, backup=False)
         gen.process_collection(str(sample_collection_structure))
 

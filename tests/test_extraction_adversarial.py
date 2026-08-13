@@ -14,8 +14,7 @@ class TestMessyTaskExtraction:
     def test_excludes_registered_and_set_fact_names(self, temp_dir):
         gen = ArgumentSpecsGenerator()
         task_file = temp_dir / "tasks.yml"
-        task_file.write_text(
-            """---
+        task_file.write_text("""---
 - name: Run command
   command: echo hi
   register: cmd_result
@@ -28,8 +27,7 @@ class TestMessyTaskExtraction:
   debug:
     msg: "{{ cmd_result.stdout }} {{ computed_value }} {{ app_name }}"
   when: cmd_result.rc == 0
-"""
-        )
+""")
         variables = gen.extract_variables_from_task_file(task_file)
         assert "app_name" in variables
         assert "cmd_result" not in variables
@@ -40,8 +38,7 @@ class TestMessyTaskExtraction:
     def test_loop_and_with_items(self, temp_dir):
         gen = ArgumentSpecsGenerator()
         task_file = temp_dir / "loop.yml"
-        task_file.write_text(
-            """---
+        task_file.write_text("""---
 - name: Loop packages
   package:
     name: "{{ item }}"
@@ -51,8 +48,7 @@ class TestMessyTaskExtraction:
   debug:
     msg: "{{ item }}"
   with_items: "{{ app_users }}"
-"""
-        )
+""")
         variables = gen.extract_variables_from_task_file(task_file)
         assert "app_packages" in variables
         assert "app_users" in variables
@@ -61,32 +57,28 @@ class TestMessyTaskExtraction:
     def test_nested_jinja_in_strings_and_environment(self, temp_dir):
         gen = ArgumentSpecsGenerator()
         task_file = temp_dir / "env.yml"
-        task_file.write_text(
-            """---
+        task_file.write_text("""---
 - name: Env task
   shell: echo "{{ app_message }}"
   environment:
     APP_HOME: "{{ app_home }}"
     APP_TOKEN: "{{ app_token }}"
   tags: "{{ app_tags }}"
-"""
-        )
+""")
         variables = gen.extract_variables_from_task_file(task_file)
         assert {"app_message", "app_home", "app_token", "app_tags"}.issubset(variables)
 
     def test_assert_that_list(self, temp_dir):
         gen = ArgumentSpecsGenerator()
         task_file = temp_dir / "assert.yml"
-        task_file.write_text(
-            """---
+        task_file.write_text("""---
 - name: Assert
   assert:
     that:
       - required_host is defined
       - required_port is defined
       - optional_flag is not defined or optional_flag
-"""
-        )
+""")
         variables = gen.extract_variables_from_task_file(task_file)
         assert "required_host" in variables
         assert "required_port" in variables
@@ -94,14 +86,12 @@ class TestMessyTaskExtraction:
     def test_filters_ansible_builtins_exactly(self, temp_dir):
         gen = ArgumentSpecsGenerator()
         task_file = temp_dir / "builtins.yml"
-        task_file.write_text(
-            """---
+        task_file.write_text("""---
 - name: Mix
   debug:
     msg: "{{ inventory_hostname }} {{ item_name }} {{ ansible_os_family }} {{ groups_extra }}"
   when: groups is defined
-"""
-        )
+""")
         variables = gen.extract_variables_from_task_file(task_file)
         assert "item_name" in variables
         assert "groups_extra" in variables
@@ -112,15 +102,13 @@ class TestMessyTaskExtraction:
     def test_malformed_yaml_falls_back_to_regex(self, temp_dir):
         gen = ArgumentSpecsGenerator()
         task_file = temp_dir / "bad.yml"
-        task_file.write_text(
-            """---
+        task_file.write_text("""---
 - name: Broken indent
   debug:
     msg: "{{ salvage_var }}"
   when: salvage_enabled
  this is not valid yaml: [
-"""
-        )
+""")
         variables = gen.extract_variables_from_task_file(task_file)
         assert "salvage_var" in variables
 
@@ -131,8 +119,10 @@ class TestMessyTaskExtraction:
         # encoding=utf-8 will raise UnicodeDecodeError in open for some content;
         # our reader uses encoding=utf-8 without errors=ignore for tasks
         variables = gen.extract_variables_from_task_file(task_file)
-        assert variables == set() or "app_name" not in variables or isinstance(
-            variables, set
+        assert (
+            variables == set()
+            or "app_name" not in variables
+            or isinstance(variables, set)
         )
 
 
@@ -140,26 +130,22 @@ class TestIncludeParsing:
     def test_include_tasks_dict_form(self, temp_dir):
         gen = ArgumentSpecsGenerator()
         task_file = temp_dir / "main.yml"
-        task_file.write_text(
-            """---
+        task_file.write_text("""---
 - name: Include
   include_tasks:
     file: nested/setup.yml
-"""
-        )
+""")
         includes = gen.parse_task_file_includes(task_file)
         assert "setup" in includes
 
     def test_import_tasks_and_include(self, temp_dir):
         gen = ArgumentSpecsGenerator()
         task_file = temp_dir / "main.yml"
-        task_file.write_text(
-            """---
+        task_file.write_text("""---
 - import_tasks: install.yml
 - include: legacy.yml
 - include_tasks: configure.yml
-"""
-        )
+""")
         includes = gen.parse_task_file_includes(task_file)
         assert {"install", "legacy", "configure"}.issubset(includes)
 
@@ -169,9 +155,7 @@ class TestIncludeParsing:
         (role / "tasks").mkdir()
         (role / "meta").mkdir()
         (role / "defaults" / "main.yml").write_text("{}\n")
-        (role / "tasks" / "main.yml").write_text(
-            "---\n- include_tasks: level1.yml\n"
-        )
+        (role / "tasks" / "main.yml").write_text("---\n- include_tasks: level1.yml\n")
         (role / "tasks" / "level1.yml").write_text(
             '---\n- include_tasks: level2.yml\n- debug:\n    msg: "{{ level1_var }}"\n'
         )
@@ -191,9 +175,7 @@ class TestIncludeParsing:
         (role / "tasks").mkdir()
         (role / "meta").mkdir()
         (role / "defaults" / "main.yml").write_text("{}\n")
-        (role / "tasks" / "main.yml").write_text(
-            "---\n- include_tasks: a.yml\n"
-        )
+        (role / "tasks" / "main.yml").write_text("---\n- include_tasks: a.yml\n")
         (role / "tasks" / "a.yml").write_text(
             '---\n- include_tasks: b.yml\n- debug:\n    msg: "{{ a_var }}"\n'
         )

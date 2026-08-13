@@ -303,9 +303,7 @@ class TestCollectionFailureExit:
         (bad / "tasks").mkdir()
         # analyze_role_structure succeeds on this; force failure via patch
         gen = ArgumentSpecsGenerator(collection_mode=True, verbosity=0)
-        with patch.object(
-            gen, "process_single_role", side_effect=RuntimeError("boom")
-        ):
+        with patch.object(gen, "process_single_role", side_effect=RuntimeError("boom")):
             from generate_argument_specs import GeneratorError
 
             with pytest.raises(GeneratorError, match="failed"):
