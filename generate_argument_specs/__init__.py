@@ -10,7 +10,7 @@ try:
 
     __version__ = _pkg_version("ansible-argument-spec-generator")
 except Exception:
-    __version__ = "1.1.0"
+    __version__ = "1.2.0"
 
 from generate_argument_specs._cli import create_example_config, main
 from generate_argument_specs._exceptions import (

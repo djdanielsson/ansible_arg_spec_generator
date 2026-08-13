@@ -24,7 +24,7 @@ try:
 
     __version__ = _pkg_version("ansible-argument-spec-generator")
 except Exception:
-    __version__ = "1.1.0"
+    __version__ = "1.2.0"
 
 
 def create_example_config():
