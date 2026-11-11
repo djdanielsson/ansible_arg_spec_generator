@@ -71,7 +71,8 @@ def _build_realistic_role(role: Path) -> None:
     for d in ("defaults", "vars", "tasks", "templates", "meta"):
         (role / d).mkdir(parents=True)
 
-    (role / "defaults" / "main.yml").write_text(
+    (role / "defaults" / "main").mkdir()
+    (role / "defaults" / "main" / "base.yml").write_text(
         yaml.dump(
             {
                 "app_enabled": True,
@@ -82,7 +83,7 @@ def _build_realistic_role(role: Path) -> None:
             }
         )
     )
-    (role / "defaults" / "extra.yml").write_text("app_workers: 4\n")
+    (role / "defaults" / "main" / "extra.yml").write_text("app_workers: 4\n")
 
     (role / "vars" / "main.yml").write_text(
         yaml.dump({"__app_internal": "hidden", "app_state": "present"})
@@ -185,7 +186,7 @@ class TestGoldenRealisticRole:
         assert opts["app_packages"]["type"] == "list"
         assert opts["app_packages"]["elements"] == "str"
         assert "app_listen_host" in opts
-        assert sorted(opts.keys()) == sorted(opts.keys())  # sanity
+        assert list(opts) == sorted(opts)
 
         # Authors pulled from meta
         assert main["author"] == ["Test Author <test@example.com>"]

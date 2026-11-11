@@ -10,6 +10,10 @@ This directory contains comprehensive tests for the ansible-argument-spec-genera
 - **`test_argument_spec.py`** - Tests for ArgumentSpec and EntryPointSpec classes
 - **`test_generator_core.py`** - Tests for ArgumentSpecsGenerator core functionality
 - **`test_variable_extraction.py`** - Tests for variable extraction and file parsing
+- **`test_variable_scopes.py`** - Exact argument sets, local scopes, optional inputs, and expression dependencies
+- **`test_role_discovery_regressions.py`** - Ansible defaults selection and nested include resolution
+- **`test_validation_regressions.py`** - CLI validation constraints and explicit stale-option exclusions
+- **`test_ansible_runtime.py`** - Run working roles before and after generation with real Ansible
 - **`test_extraction_adversarial.py`** - Messy tasks, includes, circular includes, nested templates
 - **`test_integration.py`** - Integration tests for complete workflows
 - **`test_edge_cases.py`** - Edge cases and error handling tests
@@ -67,6 +71,19 @@ python tests/test_runner.py --basic
 # Run basic tests directly
 python tests/test_basic.py
 ```
+
+### Real Ansible regressions
+
+The normal suite skips runtime tests when Ansible is unavailable. To run them:
+
+```bash
+pip install -e ".[test]" ansible-core
+python -m pytest tests/test_ansible_runtime.py -v
+```
+
+CI runs these tests in a dedicated job. Each case must succeed both before and
+after generating specs, which catches false required arguments and invalid type
+inference that schema-only checks miss.
 
 ### Test Categories
 

@@ -30,6 +30,7 @@ classifiers = [
 keywords = ["ansible", "automation", "argument-specs", "validation", "documentation", "yaml"]
 dependencies = [
     "PyYAML>=5.1",
+    "Jinja2>=3.0",
 ]
 
 [project.optional-dependencies]

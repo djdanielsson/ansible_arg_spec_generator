@@ -119,11 +119,7 @@ class TestMessyTaskExtraction:
         # encoding=utf-8 will raise UnicodeDecodeError in open for some content;
         # our reader uses encoding=utf-8 without errors=ignore for tasks
         variables = gen.extract_variables_from_task_file(task_file)
-        assert (
-            variables == set()
-            or "app_name" not in variables
-            or isinstance(variables, set)
-        )
+        assert variables == set()
 
 
 class TestIncludeParsing:
@@ -136,7 +132,7 @@ class TestIncludeParsing:
     file: nested/setup.yml
 """)
         includes = gen.parse_task_file_includes(task_file)
-        assert "setup" in includes
+        assert includes == {"nested/setup"}
 
     def test_import_tasks_and_include(self, temp_dir):
         gen = ArgumentSpecsGenerator()
@@ -196,9 +192,10 @@ class TestAdversarialRoleFiles:
         (role / "defaults").mkdir(parents=True)
         (role / "tasks").mkdir()
         (role / "meta").mkdir()
-        (role / "defaults" / "main.yml").write_text("")
-        (role / "defaults" / "list.yml").write_text("- a\n- b\n")
-        (role / "defaults" / "ok.yml").write_text("ok_var: 1\n")
+        (role / "defaults" / "main").mkdir()
+        (role / "defaults" / "main" / "empty.yml").write_text("")
+        (role / "defaults" / "main" / "list.yml").write_text("- a\n- b\n")
+        (role / "defaults" / "main" / "ok.yml").write_text("ok_var: 1\n")
         (role / "tasks" / "main.yml").write_text("---\n[]\n")
 
         gen = ArgumentSpecsGenerator(collection_mode=False)

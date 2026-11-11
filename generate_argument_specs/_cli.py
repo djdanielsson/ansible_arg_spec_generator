@@ -202,6 +202,14 @@ Examples:
     )
 
     parser.add_argument(
+        "--exclude-variable",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="Omit an argument, including a stale existing option (repeatable)",
+    )
+
+    parser.add_argument(
         "--no-backup",
         action="store_true",
         help="Do not create a backup before overwriting existing argument_specs.yml",
@@ -275,6 +283,7 @@ Examples:
         dry_run=args.dry_run,
         include_vars=args.include_vars,
         backup=not args.no_backup,
+        exclude_variables=args.exclude_variable,
     )
 
     try:
@@ -336,30 +345,7 @@ def _validate_collection(args, generator, quiet):
         specs_file = role_path / "meta" / "argument_specs.yml"
         if specs_file.exists():
             _print_unless_quiet(f"Validating {role_name}...", quiet)
-            with open(specs_file, "r") as f:
-                existing_specs = yaml.safe_load(f)
-
-            generator.entry_points.clear()
-            for entry_name, entry_data in existing_specs.get(
-                "argument_specs", {}
-            ).items():
-                entry_point = EntryPointSpec(name=entry_name)
-                entry_point.short_description = entry_data.get("short_description", "")
-                entry_point.description = entry_data.get("description", [])
-
-                for arg_name, arg_data in entry_data.get("options", {}).items():
-                    arg_spec = ArgumentSpec(
-                        name=arg_name,
-                        type=arg_data.get("type", "str"),
-                        required=arg_data.get("required", False),
-                        default=arg_data.get("default"),
-                        choices=arg_data.get("choices"),
-                        description=arg_data.get("description"),
-                        elements=arg_data.get("elements"),
-                    )
-                    entry_point.options[arg_name] = arg_spec
-
-                generator.add_entry_point(entry_point)
+            generator.load_specs_for_validation(str(specs_file))
 
             if not generator.validate_specs():
                 raise ValidationError(f"Validation failed for {role_name}")
@@ -376,27 +362,7 @@ def _main_single_role_mode(args, generator, quiet):
         if not os.path.exists(output_file):
             raise ConfigError(f"No existing specs found at {output_file}")
 
-        with open(output_file, "r") as f:
-            existing_specs = yaml.safe_load(f)
-
-        for entry_name, entry_data in existing_specs.get("argument_specs", {}).items():
-            entry_point = EntryPointSpec(name=entry_name)
-            entry_point.short_description = entry_data.get("short_description", "")
-            entry_point.description = entry_data.get("description", [])
-
-            for arg_name, arg_data in entry_data.get("options", {}).items():
-                arg_spec = ArgumentSpec(
-                    name=arg_name,
-                    type=arg_data.get("type", "str"),
-                    required=arg_data.get("required", False),
-                    default=arg_data.get("default"),
-                    choices=arg_data.get("choices"),
-                    description=arg_data.get("description"),
-                    elements=arg_data.get("elements"),
-                )
-                entry_point.options[arg_name] = arg_spec
-
-            generator.add_entry_point(entry_point)
+        generator.load_specs_for_validation(output_file)
     else:
         if args.from_defaults:
             generator.from_defaults_file(args.from_defaults, args.entry_point)

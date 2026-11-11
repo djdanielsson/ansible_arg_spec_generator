@@ -99,10 +99,7 @@ class TestVariableExtractionFromTasks:
         # Check for variables that should be found in when conditions
         # Some may be in Jinja2 blocks, others in plain when conditions
         basic_vars = {"deployment_mode", "app_version", "database_password"}
-        found_basic = basic_vars.intersection(variables)
-        assert (
-            len(found_basic) >= 2
-        ), f"Expected to find at least 2 variables, found: {found_basic} from {variables}"
+        assert variables == basic_vars | {"ssl_enabled"}
 
     def test_extract_variables_from_assert_statements(self, temp_dir):
         """Test variable extraction from assert statements"""
@@ -160,11 +157,12 @@ class TestVariableExtractionFromTasks:
         variables = generator.extract_variables_from_task_file(task_file)
 
         # Check for basic loop variables
-        basic_vars = {"app_packages", "app_users"}  # These should be in {{ }} blocks
-        found_basic = basic_vars.intersection(variables)
-        assert (
-            len(found_basic) >= 1
-        ), f"Expected to find at least 1 loop variable, found: {found_basic} from {variables}"
+        assert variables == {
+            "app_packages",
+            "app_users",
+            "package_enabled",
+            "default_groups",
+        }
 
         # 'item' should be filtered out as it's a loop variable
         assert "item" not in variables

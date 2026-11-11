@@ -110,19 +110,19 @@ class TestBackup:
 
 
 class TestMultiFileAndTemplates:
-    def test_loads_additional_defaults_files(self, temp_dir):
+    def test_loads_main_directory_defaults_files(self, temp_dir):
         role = temp_dir / "role"
         (role / "defaults").mkdir(parents=True)
         (role / "tasks").mkdir()
         (role / "meta").mkdir()
-        (role / "defaults" / "main.yml").write_text("a: 1\n")
-        (role / "defaults" / "extra.yml").write_text("b: 2\n")
+        (role / "defaults" / "main").mkdir()
+        (role / "defaults" / "main" / "base.yml").write_text("app_port: 80\n")
+        (role / "defaults" / "main" / "extra.yml").write_text("app_workers: 2\n")
         (role / "tasks" / "main.yml").write_text("---\n[]\n")
 
         gen = ArgumentSpecsGenerator(collection_mode=False)
         analysis = gen.analyze_role_structure(str(role))
-        assert analysis["defaults"]["a"] == 1
-        assert analysis["defaults"]["b"] == 2
+        assert analysis["defaults"] == {"app_port": 80, "app_workers": 2}
 
     def test_extracts_template_variables(self, temp_dir):
         role = temp_dir / "role"

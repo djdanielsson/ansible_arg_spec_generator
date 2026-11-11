@@ -12,7 +12,7 @@ A Python tool that automatically generates `argument_specs.yml` files for Ansibl
 - **Collection-Wide Processing**: Process all roles in a collection automatically
 - **Single Role Mode**: Generate specs for individual roles with interactive or automated modes
 - **Intelligent Type Inference**: Detects types from default values (and path-like names/values)
-- **Variable Discovery**: Extracts variables from `defaults/*.yml`, tasks, and templates (`vars/` via `--include-vars`)
+- **Variable Discovery**: Extracts variables from `defaults/main.yml` or `defaults/main/`, tasks, and templates (`vars/` via `--include-vars`)
 - **Secret Handling**: Sets `no_log: true` for password/token/secret-like names
 - **Smart Filtering**: Excludes registered variables, private (`_`-prefixed) variables, and Ansible built-ins
 - **Multiple Entry Points**: Supports roles with multiple task entry points
@@ -33,7 +33,7 @@ pip install -e .
 
 **Requirements:**
 - Python 3.8+
-- PyYAML (automatically installed)
+- PyYAML and Jinja2 (automatically installed)
 - Ansible Core 2.11+ (for using the generated specs)
 
 After installation, you have access to these commands:
@@ -120,6 +120,7 @@ ansible-argument-spec-generator --quiet
 | `--output FILE` | Output file path (default: meta/argument_specs.yml) |
 | `--validate-only` | Validate existing specs without generating |
 | `--include-vars` | Include variables from `vars/` as options (off by default) |
+| `--exclude-variable NAME` | Omit an argument, including an existing stale option; repeat for multiple names |
 | `--no-backup` | Skip timestamped `.bak` backup before overwrite |
 | `--dry-run` | Preview output without writing files |
 | `-q, --quiet` | Suppress all output including summaries |
@@ -129,7 +130,7 @@ ansible-argument-spec-generator --quiet
 
 The tool analyzes your Ansible roles to automatically generate argument specifications:
 
-1. **Discovers Variables**: Extracts variables from `defaults/*.yml`, task files, and templates (`vars/` only with `--include-vars`)
+1. **Discovers Variables**: Extracts variables from `defaults/main.yml` or `defaults/main/`, task files, and templates (`vars/` only with `--include-vars`)
 2. **Infers Types**: Automatically detects variable types based on naming patterns and default values
 3. **Marks Secrets**: Sets `no_log: true` for password/token/secret-like variable names
 4. **Detects Entry Points**: Identifies multiple task entry points (main.yml, install.yml, etc.)
@@ -199,13 +200,13 @@ argument_specs:
 
 The tool automatically extracts variables from multiple sources:
 
-- **Defaults**: all `defaults/*.yml` / `defaults/*.yaml` (merged; `main.yml` first)
-- **Vars** (optional): all `vars/*.yml` when `--include-vars` is set
-- **Task Files**: Jinja2 usages, conditionals, loops, asserts, environment, tags
+- **Defaults**: Ansible's selected `defaults/main.yml`, `main.yaml`, `main.json`, or extensionless `main` file; a `defaults/main/` directory loads its supported files recursively
+- **Vars** (optional): the selected `vars/main` file or directory, using the same rules as defaults
+- **Task Files**: Jinja expressions, conditionals, loops, asserts, environment, tags, and static includes/imports (including nested paths and blocks)
 - **Templates**: Jinja2 variables under `templates/`
 - **Multiple Entry Points**: standalone task files not included by others (plus `main`)
 
-Vars values may still be used for **type inference** when a variable appears in tasks/templates, even if `--include-vars` is off.
+Vars values may still be used for **type inference** when a variable appears in tasks/templates, even if `--include-vars` is off. These variables remain optional because the role supplies them before validation. Unselected sibling files in `defaults/` and `vars/` are not merged automatically.
 
 ### Smart Type Inference
 
@@ -214,13 +215,37 @@ Types come primarily from default values:
 - Path-like names (`*_path`, `*_dir`, …) with path-like values → `type: path`
 - List element types are inferred from list contents (`bool` checked before `int`)
 - Secret-like names (`password`, `token`, `secret`, …) → `no_log: true`
+- Task/template inputs without a known value use `raw`, so lists and dictionaries are not incorrectly validated as strings; existing curated types take precedence
 
 ### Variable Filtering
 
 Automatically excludes:
 - Private variables (names starting with `_`)
-- Registered variables and `set_fact` names from tasks
+- Previously registered results and all `set_fact` assignments along each entry point's include paths
+- Task/block-local variables, custom loop/index variables, and Jinja loop, macro, and assignment locals
 - Ansible built-ins (`ansible_*`, and exact names like `item`, `loop`, `hostvars`, `inventory_hostname`, …)
+
+### Optional inputs and existing specs
+
+An input used only behind a `default`/`d` fallback or a defined-variable guard is
+optional. An unguarded reference elsewhere still makes it required, and an
+explicit `assert` that an input is defined is treated as a requirement. Existing
+curated `required` settings take precedence. Templates are analyzed with the
+scope of their rendering task; unreferenced templates contribute optional inputs.
+
+Existing options are preserved during regeneration, including names that older
+versions mistakenly discovered. Remove known stale arguments explicitly:
+
+```bash
+ansible-argument-spec-generator --role my_role \
+  --exclude-variable package_entry --exclude-variable package_index
+```
+
+Exclusions apply to both newly discovered and existing options. Use `--dry-run` to skip writes; normal writes retain the existing backup behavior.
+
+Analysis parses Jinja without executing lookups, custom filters, or tests. Static
+include paths are followed with their calling scope. File names computed at
+runtime cannot be resolved statically; review those roles' generated options.
 
 ## Validation
 

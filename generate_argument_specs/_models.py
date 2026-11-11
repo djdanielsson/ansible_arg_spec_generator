@@ -76,7 +76,7 @@ class ArgumentSpec:
         return cls(
             name=name,
             type=data.get("type", "str"),
-            required=bool(data.get("required", False)),
+            required=data.get("required", False),
             default=data.get("default"),
             choices=data.get("choices"),
             description=data.get("description"),
@@ -108,6 +108,32 @@ class EntryPointSpec:
             self.author = []
         if self.options is None:
             self.options = {}
+
+    @classmethod
+    def from_existing_dict(cls, name: str, data: Dict[str, Any]) -> "EntryPointSpec":
+        """Load all supported fields without dropping validation constraints."""
+        if not isinstance(data, dict):
+            raise ValueError(f"Entry point '{name}' must be a mapping")
+        options = data.get("options", {})
+        if not isinstance(options, dict):
+            raise ValueError(f"Options for '{name}' must be a mapping")
+        for option, value in options.items():
+            if not isinstance(value, dict):
+                raise ValueError(f"Option '{name}.{option}' must be a mapping")
+        return cls(
+            name=name,
+            short_description=data.get("short_description", ""),
+            description=data.get("description", []),
+            author=data.get("author", []),
+            options={
+                key: ArgumentSpec.from_existing_dict(key, value)
+                for key, value in options.items()
+            },
+            required_if=data.get("required_if"),
+            required_one_of=data.get("required_one_of"),
+            mutually_exclusive=data.get("mutually_exclusive"),
+            required_together=data.get("required_together"),
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format for YAML output"""

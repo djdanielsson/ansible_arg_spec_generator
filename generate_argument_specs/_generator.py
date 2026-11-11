@@ -19,6 +19,8 @@ from ._exceptions import (
     ValidationError,
 )
 from ._models import ArgumentSpec, ArgumentType, EntryPointSpec
+from ._jinja_analysis import VariableUsage
+from ._task_analysis import TaskAnalyzer, include_target, task_file_key, walk_tasks
 from ._type_inference import TypeInferenceMixin
 from ._variable_extraction import VariableExtractionMixin
 from ._yaml_output import YamlOutputMixin
@@ -38,6 +40,7 @@ class ArgumentSpecsGenerator(
         dry_run: bool = False,
         include_vars: bool = False,
         backup: bool = True,
+        exclude_variables: Optional[List[str]] = None,
     ):
         self.entry_points: Dict[str, EntryPointSpec] = {}
         self.collection_mode = collection_mode
@@ -47,6 +50,7 @@ class ArgumentSpecsGenerator(
         self.dry_run = dry_run
         self.include_vars = include_vars
         self.backup = backup
+        self.exclude_variables = set(exclude_variables or [])
         self.current_role = ""
         self.stats = {
             "roles_processed": 0,
@@ -59,6 +63,8 @@ class ArgumentSpecsGenerator(
 
     def add_entry_point(self, entry_point: EntryPointSpec):
         """Add an entry point to the specification"""
+        for name in self.exclude_variables:
+            entry_point.options.pop(name, None)
         self.entry_points[entry_point.name] = entry_point
 
     # ------------------------------------------------------------------ logging
@@ -144,18 +150,34 @@ class ArgumentSpecsGenerator(
             return None
 
     def _load_yaml_mapping_dir(self, directory: Path) -> Dict[str, Any]:
-        """Load and merge all *.yml/*.yaml mapping files in a directory."""
+        """Load Ansible's selected main file, or files beneath its main directory."""
         merged: Dict[str, Any] = {}
         if not directory.is_dir():
             return merged
-
-        files = sorted(directory.glob("*.yml")) + sorted(directory.glob("*.yaml"))
-        # Prefer main.yml first so other files can override intentionally
-        files = sorted(
-            files,
-            key=lambda p: (0 if p.name in ("main.yml", "main.yaml") else 1, p.name),
+        main = next(
+            (
+                directory / name
+                for name in ("main.yml", "main.yaml", "main.json", "main")
+                if (directory / name).exists()
+            ),
+            None,
         )
-        for yaml_file in files:
+        if main is None:
+            return merged
+
+        def mapping_files(path):
+            if path.is_file():
+                yield path
+                return
+            for child in sorted(path.iterdir()):
+                if child.name.startswith(".") or child.name.endswith("~"):
+                    continue
+                if child.is_dir():
+                    yield from mapping_files(child)
+                elif child.suffix in {".yml", ".yaml", ".json", ""}:
+                    yield child
+
+        for yaml_file in mapping_files(main):
             data = self._safe_load_yaml_file(yaml_file)
             if isinstance(data, dict):
                 merged.update(data)
@@ -166,26 +188,18 @@ class ArgumentSpecsGenerator(
         return merged
 
     def _extract_template_variables(self, role_dir: Path) -> Set[str]:
-        """Extract Jinja2 variables from role templates."""
+        """Find external Jinja names, respecting template-local declarations."""
+        analyzer = TaskAnalyzer(self, role_dir)
         variables: Set[str] = set()
         templates_dir = role_dir / "templates"
-        if not templates_dir.is_dir():
-            return variables
-
-        var_pattern = re.compile(
-            r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\|[^}]*)?\s*\}\}"
-        )
-        for template_file in templates_dir.rglob("*"):
-            if not template_file.is_file():
-                continue
-            try:
-                content = template_file.read_text(encoding="utf-8", errors="ignore")
-            except (OSError, IOError) as e:
-                self.log_verbose(f"Could not read template {template_file}: {e}")
-                continue
-            for match in var_pattern.findall(content):
-                if self._is_valid_role_variable(match):
-                    variables.add(match)
+        if templates_dir.is_dir():
+            for template_file in sorted(templates_dir.rglob("*")):
+                if template_file.is_file():
+                    variables.update(
+                        analyzer.analyze_template(template_file)
+                        .filtered(self._is_valid_role_variable)
+                        .names
+                    )
         return variables
 
     def _lookup_known_value(self, var_name: str, analysis: Dict[str, Any]) -> Any:
@@ -217,9 +231,14 @@ class ArgumentSpecsGenerator(
                 no_log = True
             return ArgumentSpec(
                 name=var_name,
-                type=existing_opt.get("type", "str"),
+                type=existing_opt.get("type", "raw"),
                 required=existing_opt.get(
-                    "required", not (in_defaults or (self.include_vars and in_vars))
+                    "required",
+                    not (
+                        in_defaults
+                        or in_vars
+                        or var_name in analysis.get("optional_vars", set())
+                    ),
                 ),
                 default=(
                     analysis["defaults"][var_name]
@@ -245,7 +264,7 @@ class ArgumentSpecsGenerator(
                 existing_opt=existing_opt,
             )
 
-        # Task/template-only: infer type from a known value when available, else str
+        # Task/template-only: infer from known values; otherwise accept raw values.
         if known_value is not None:
             arg_spec = self._infer_argument_spec(
                 var_name,
@@ -259,7 +278,9 @@ class ArgumentSpecsGenerator(
             # Value came from vars while include_vars is off — typing only
             arg_spec.default = None
             if "required" not in existing_opt:
-                arg_spec.required = True
+                arg_spec.required = not in_vars and var_name not in analysis.get(
+                    "optional_vars", set()
+                )
             if existing_opt.get("description"):
                 arg_spec.description = existing_opt["description"]
             else:
@@ -276,8 +297,10 @@ class ArgumentSpecsGenerator(
 
         return ArgumentSpec(
             name=var_name,
-            type=existing_opt.get("type", "str"),
-            required=existing_opt.get("required", True),
+            type=existing_opt.get("type", "raw"),
+            required=existing_opt.get(
+                "required", var_name not in analysis.get("optional_vars", set())
+            ),
             default=existing_opt.get("default"),
             choices=existing_opt.get("choices"),
             description=existing_opt.get("description") or description,
@@ -372,13 +395,6 @@ class ArgumentSpecsGenerator(
         analysis["defaults"] = self._load_yaml_mapping_dir(role_dir / "defaults")
         analysis["vars"] = self._load_yaml_mapping_dir(role_dir / "vars")
 
-        # Analyze templates for variable usage
-        analysis["template_vars"] = self._extract_template_variables(role_dir)
-        if analysis["template_vars"]:
-            self.log_debug(
-                f"Found {len(analysis['template_vars'])} variable(s) in templates"
-            )
-
         # Analyze meta/main.yml for author information
         meta_file = role_dir / "meta" / "main.yml"
         if meta_file.exists():
@@ -465,7 +481,11 @@ class ArgumentSpecsGenerator(
             if var_name not in all_variables:
                 all_variables[var_name] = {
                     "type": "str",
-                    "required": True,
+                    "required": any(
+                        var_name in usage.required
+                        for usage in analysis.get("entry_point_usage", {}).values()
+                    )
+                    and var_name not in analysis.get("vars", {}),
                     "description": f"Variable used in tasks: {var_name}",
                 }
 
@@ -619,42 +639,76 @@ class ArgumentSpecsGenerator(
         return current
 
     def _analyze_task_files(self, role_dir: Path, analysis: Dict[str, Any]):
-        """Analyze task files to find variables and entry points"""
+        """Discover includes by full path, then analyze each entry point in context."""
+        role_dir = role_dir.resolve()
         tasks_dir = role_dir / "tasks"
-        if not tasks_dir.exists():
-            return
+        analyzer = TaskAnalyzer(self, role_dir)
+        task_files = []
+        if tasks_dir.is_dir():
+            task_files = sorted(
+                path
+                for path in tasks_dir.rglob("*")
+                if path.is_file()
+                and (path.suffix in {".yml", ".yaml"} or path.name == "main")
+            )
+        analysis["tasks_dir"] = tasks_dir
+        analysis["file_includes_map"] = {}
+        all_included = set()
+        paths = {}
+        for path in task_files:
+            key = task_file_key(path, tasks_dir)
+            # Ansible prefers .yml to .yaml when both spellings exist.
+            if key not in paths or path.suffix == ".yml":
+                paths[key] = path
+        for key, path in paths.items():
+            analysis["all_task_files"].add(key)
+            _, tasks = analyzer.load(path)
+            includes = set()
+            for task in walk_tasks(tasks):
+                target = include_target(task)
+                resolved = analyzer.resolve_include(target, path.parent)
+                if resolved is not None:
+                    try:
+                        includes.add(task_file_key(resolved, tasks_dir))
+                    except ValueError:
+                        self.log_verbose(
+                            f"Include outside the role task directory: {resolved}"
+                        )
+            all_included.update(includes)
+            analysis["file_includes_map"][key] = includes
+            analysis["file_variables"][key] = analyzer.analyze_file(
+                path, follow_includes=False
+            ).names
+        analysis["included_files"] = all_included
+        self._determine_entry_points(list(paths.values()), all_included, analysis)
 
-        task_files = list(tasks_dir.glob("*.yml")) + list(tasks_dir.glob("*.yaml"))
-        all_included_files = set()
-        file_includes_map = {}
-
-        for task_file in task_files:
-            analysis["all_task_files"].add(task_file.stem)
-
-        for task_file in task_files:
-            includes = self.parse_task_file_includes(task_file)
-            variables = self.extract_variables_from_task_file(task_file)
-
-            all_included_files.update(includes)
-            file_includes_map[task_file.stem] = includes
-            analysis["file_variables"][task_file.stem] = variables
-
-            if includes:
-                self.log_debug(
-                    f"{task_file.stem} includes: {', '.join(sorted(includes))}"
-                )
-
-        self.log_debug(
-            f"All task files found: {', '.join(sorted([f.stem for f in task_files]))}"
+        analyzer.referenced_templates.clear()
+        analyzer.template_usage = VariableUsage()
+        entry_usage = {}
+        for name in analysis["entry_points"]:
+            entry_usage[name] = (
+                analyzer.analyze_file(paths[name]) if name in paths else VariableUsage()
+            )
+        # Unreferenced templates remain discoverable, but cannot impose required
+        # arguments on a role that never renders them.
+        templates_dir = role_dir / "templates"
+        if templates_dir.is_dir():
+            for template in sorted(templates_dir.rglob("*")):
+                if (
+                    template.is_file()
+                    and template.resolve() not in analyzer.referenced_templates
+                ):
+                    orphan_usage = analyzer.analyze_template(template).filtered(
+                        self._is_valid_role_variable
+                    )
+                    entry_usage["main"].names.update(orphan_usage.names)
+        analysis["entry_point_usage"] = entry_usage
+        analysis["task_vars"] = set().union(
+            *(usage.names for usage in entry_usage.values())
         )
-        self.log_debug(
-            f"All included files: {', '.join(sorted(all_included_files)) if all_included_files else 'None'}"
-        )
-
-        analysis["included_files"] = all_included_files
-        analysis["file_includes_map"] = file_includes_map
-
-        self._determine_entry_points(task_files, all_included_files, analysis)
+        # Templates have already been analyzed at their call sites with the task
+        # scope. Do not reintroduce their bound names through the legacy fallback.
+        analysis["template_vars"] = analyzer.template_usage.names
 
     def _determine_entry_points(
         self, task_files: List[Path], all_included_files: set, analysis: Dict[str, Any]
@@ -662,8 +716,10 @@ class ArgumentSpecsGenerator(
         """Determine which task files are entry points"""
         standalone_files = set()
         for task_file in task_files:
-            if task_file.stem != "main" and task_file.stem not in all_included_files:
-                standalone_files.add(task_file.stem)
+            tasks_dir = analysis.get("tasks_dir", task_file.parent)
+            name = task_file_key(task_file, tasks_dir)
+            if name != "main" and name not in all_included_files:
+                standalone_files.add(name)
 
         if "main" not in analysis["entry_points"]:
             analysis["entry_points"]["main"] = {
@@ -895,6 +951,8 @@ class ArgumentSpecsGenerator(
             )
 
         for var_name, var_value in analysis["defaults"].items():
+            if not self._is_valid_role_variable(var_name):
+                continue
             existing_opt = existing_options.get(var_name, {})
             existing_desc = existing_opt.get("description")
             existing_version = existing_opt.get("version_added")
@@ -918,6 +976,8 @@ class ArgumentSpecsGenerator(
 
         if self.include_vars:
             for var_name, var_value in analysis["vars"].items():
+                if not self._is_valid_role_variable(var_name):
+                    continue
                 if var_name in entry_point.options:
                     continue
                 existing_opt = existing_options.get(var_name, {})
@@ -940,16 +1000,27 @@ class ArgumentSpecsGenerator(
                     arg_spec.required = False
                 entry_point.options[var_name] = arg_spec
 
-        self._add_entry_point_variables(
-            entry_point, entry_point_name, analysis, existing_options
-        )
+        if "entry_point_usage" in analysis:
+            usage = analysis["entry_point_usage"].get(entry_point_name, VariableUsage())
+            scoped_analysis = dict(analysis, optional_vars=usage.names - usage.required)
+            for var_name in sorted(usage.names):
+                if var_name not in entry_point.options:
+                    entry_point.options[var_name] = self._build_task_argument_spec(
+                        var_name,
+                        scoped_analysis,
+                        existing_options.get(var_name, {}),
+                        f"Variable used in {entry_point_name} entry point",
+                    )
+        else:
+            self._add_entry_point_variables(
+                entry_point, entry_point_name, analysis, existing_options
+            )
+            self._merge_included_variables(
+                entry_point, entry_point_name, analysis, existing_options
+            )
 
-        self._merge_included_variables(
-            entry_point, entry_point_name, analysis, existing_options
-        )
-
-        # Template variables belong on the main entry point
-        if entry_point_name == "main":
+        # Older analysis dictionaries do not carry template call-site usage.
+        if entry_point_name == "main" and "entry_point_usage" not in analysis:
             for var_name in analysis.get("template_vars", set()):
                 if var_name in entry_point.options:
                     continue
@@ -1414,6 +1485,25 @@ class ArgumentSpecsGenerator(
 
     # --------------------------------------------------------------- validation
 
+    def load_specs_for_validation(self, specs_file: str) -> None:
+        """Strictly load a specs document for both CLI validation modes."""
+        try:
+            with open(specs_file, "r", encoding="utf-8") as stream:
+                data = yaml.safe_load(stream)
+            if not isinstance(data, dict) or not isinstance(
+                data.get("argument_specs"), dict
+            ):
+                raise ValueError("Expected an argument_specs mapping")
+            entries = {
+                name: EntryPointSpec.from_existing_dict(name, value)
+                for name, value in data["argument_specs"].items()
+            }
+        except (OSError, UnicodeError, yaml.YAMLError, ValueError) as error:
+            raise ConfigError(
+                f"Could not load specs from {specs_file}: {error}"
+            ) from error
+        self.entry_points = entries
+
     def _validate_option(
         self, arg_name: str, arg_spec: ArgumentSpec, valid_types: set
     ) -> bool:
@@ -1422,6 +1512,10 @@ class ArgumentSpecsGenerator(
 
         if arg_spec.type not in valid_types:
             self.log_error(f"Invalid type '{arg_spec.type}' for argument '{arg_name}'")
+            ok = False
+
+        if not isinstance(arg_spec.required, bool):
+            self.log_error(f"Argument '{arg_name}' required must be a boolean")
             ok = False
 
         if arg_spec.required and arg_spec.default is not None:
@@ -1445,7 +1539,14 @@ class ArgumentSpecsGenerator(
                 f"No elements type specified for {arg_spec.type} argument '{arg_name}'"
             )
 
-        if arg_spec.type == "dict" and arg_spec.options:
+        if arg_spec.options is not None:
+            if arg_spec.type != "dict" and not (
+                arg_spec.type == "list" and arg_spec.elements == "dict"
+            ):
+                self.log_error(
+                    f"Argument '{arg_name}' options require dict or list elements of type dict"
+                )
+                ok = False
             if not isinstance(arg_spec.options, dict):
                 self.log_error(
                     f"Argument '{arg_name}' options must be a dictionary of nested specs"
@@ -1490,11 +1591,13 @@ class ArgumentSpecsGenerator(
             all_args = set(entry_point.options.keys())
 
             for condition_type, conditions in [
-                ("required_if", entry_point.required_if or []),
-                ("required_one_of", entry_point.required_one_of or []),
-                ("mutually_exclusive", entry_point.mutually_exclusive or []),
-                ("required_together", entry_point.required_together or []),
+                ("required_if", entry_point.required_if),
+                ("required_one_of", entry_point.required_one_of),
+                ("mutually_exclusive", entry_point.mutually_exclusive),
+                ("required_together", entry_point.required_together),
             ]:
+                if conditions is None:
+                    continue
                 if not isinstance(conditions, list):
                     self.log_error(
                         f"{condition_type} for '{entry_name}' must be a list"
@@ -1526,14 +1629,17 @@ class ArgumentSpecsGenerator(
                             else [condition[2]]
                         )
 
-                        if param not in all_args:
+                        if not isinstance(param, str) or param not in all_args:
                             self.log_error(
                                 f"{condition_type} references unknown argument '{param}'"
                             )
                             valid = False
 
                         for req_param in required_params:
-                            if req_param not in all_args:
+                            if (
+                                not isinstance(req_param, str)
+                                or req_param not in all_args
+                            ):
                                 self.log_error(
                                     f"{condition_type} references unknown argument '{req_param}'"
                                 )
@@ -1546,7 +1652,7 @@ class ArgumentSpecsGenerator(
                             valid = False
                             continue
                         for param in condition:
-                            if param not in all_args:
+                            if not isinstance(param, str) or param not in all_args:
                                 self.log_error(
                                     f"{condition_type} references unknown argument '{param}'"
                                 )
