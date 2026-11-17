@@ -5,7 +5,7 @@ Authoritative Python version management script.
 This script acts as a single source of truth for Python version support. It:
 1.  Fetches the list of Python releases from the official
     `actions/python-versions` manifest, avoiding GitHub API rate limits.
-2.  Filters for STABLE supported versions (e.g., 3.8 and newer).
+2.  Filters for STABLE supported versions (e.g., 3.11 and newer).
 3.  Updates the `pyproject.toml` classifiers to perfectly match the
     supported versions, adding new ones and removing old ones.
 4.  Provides version lists in various formats for CI/CD automation.
@@ -29,7 +29,7 @@ from packaging import version
 PYPROJECT_PATH: Path = Path(__file__).parent.parent / "pyproject.toml"
 
 # The minimum major.minor Python version to support.
-MIN_PYTHON_VERSION: str = "3.8"
+MIN_PYTHON_VERSION: str = "3.11"
 
 # The URL for the version manifest. This avoids GitHub API rate limiting.
 VERSIONS_MANIFEST_URL: str = (
@@ -45,7 +45,7 @@ def get_supported_python_versions() -> List[str]:
     Get supported Python versions from the public manifest.
 
     Returns:
-        A sorted list of "major.minor" version strings (e.g., ["3.8", "3.9"]).
+        A sorted list of "major.minor" version strings (e.g., ["3.11", "3.12"]).
     """
     print("🔍 Fetching Python versions manifest...", file=sys.stderr)
     try:
