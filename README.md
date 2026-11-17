@@ -32,7 +32,7 @@ pip install -e .
 ```
 
 **Requirements:**
-- Python 3.8+
+- Python 3.11+
 - PyYAML and Jinja2 (automatically installed)
 - Ansible Core 2.11+ (for using the generated specs)
 
@@ -327,7 +327,7 @@ We welcome contributions! Here's how you can help improve the Ansible Argument S
 
 2. **Set up development environment:**
    ```bash
-   # Install Python 3.8+
+   # Install Python 3.11+
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    pip install -e ".[dev]"
